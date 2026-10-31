@@ -13,15 +13,16 @@ import soundfile as sf
 
 SR = 22050          # 음성 내부 렌더링
 OUT_SR = 44100
-PULSE = 0.625       # 맥당 0.625초 = 분당 96맥
+PULSE = 0.8         # 맥당 0.8초 = 분당 75맥
+LINE_PULSES = 10    # 여섯 음절 + 끝 음절 늘임 + 쉼
 PAD = 0.25          # MP3 앞뒤 인코더 여백을 흡수할 순환 여분(초). sound.js와 맞출 것
 FRAME = 0.005
 NOTE = {'E': 82.41, 'G': 98.0, 'A': 110.0, 'C': 130.81, 'D': 146.83}
 
 # 나 무 아 미 타 불 (불은 3맥)
-CELLS = ['AACAGA', 'AACDCA', 'GAACAA', 'ACDCAA', 'AACAAE', 'EGACAA']
-LINES = [0, 1, 0, 2, 1, 3, 0, 4, 5, 1, 3, 0]
-LOOP = len(LINES) * 8 * PULSE
+CELLS = ['AAGAGA', 'AACAAA', 'GAAAGA', 'AACAGA']
+LINES = [0, 1, 0, 2, 1, 0, 3, 2]
+LOOP = len(LINES) * LINE_PULSES * PULSE
 rng = np.random.default_rng(108)
 
 #          F1    F2    F3   amp noise nasal
@@ -52,8 +53,8 @@ def tracks(t0_list, formant_k, jitter_t):
         for i, (c, cd, v) in enumerate(SYL):
             D = PULSE * (3 if i == 5 else 1)
             on = T + jitter_t
-            accent = 1.0 if i % 2 == 0 else 0.86
-            shape = accent * (1 - 0.05 * i)
+            accent = 1.0 if i % 2 == 0 else 0.94
+            shape = accent * (1 - 0.035 * i)
             vow = PH[v]
             if c == 'T':
                 keys += [(on - 0.11, *PH['t']), (on - 0.06, *PH['t']), (on - 0.055, *PH['h']), (on - 0.005, *PH['h'])]
@@ -173,58 +174,49 @@ def circular(x, ir):
 
 
 def main(path):
-    line_t = [(i * 8 * PULSE, CELLS[c]) for i, c in enumerate(LINES)]
+    # 첫 줄을 한 맥 뒤에서 시작해 반복 이음매가 쉼 구간에 오게 한다
+    line_t = [((i * LINE_PULSES + 1) * PULSE, CELLS[c]) for i, c in enumerate(LINES)]
     N = int(LOOP * OUT_SR)
 
-    # 집전 스님: 전 구간. 대중: 3번째 줄부터
-    leader = voice(line_t, 0, 1.0, 0.0, 4.8, 22)
-    group = line_t[2:]
-    others = [(-11, 0.97, 0.022, 5.2, 14, 0.25, 0.46), (9, 1.03, -0.026, 4.4, 26, 0.75, 0.44),
-              (-5, 1.05, 0.034, 5.6, 10, 0.12, 0.40), (14, 0.95, -0.015, 4.9, 18, 0.9, 0.42),
-              (3, 1.01, 0.046, 5.0, 12, 0.55, 0.36)]
-    L, R = leader * 0.62, leader * 0.62
-    for det, fk, jit, rate, depth, pan, gain in others:
-        v = voice(group, det, fk, jit, rate, depth, breath=0.05)
+    # 집전 스님 한 분과 멀리서 따라 하는 두 분. 숨을 섞어 낮게 부른다
+    leader = voice(line_t, 0, 1.0, 0.0, 4.4, 9, breath=0.06, rasp=0.008)
+    L, R = leader * 0.7, leader * 0.7
+    for det, fk, jit, rate, depth, pan, gain in [(-7, 0.97, 0.03, 4.8, 6, 0.28, 0.2), (6, 1.03, -0.028, 4.1, 7, 0.72, 0.18)]:
+        v = voice(line_t, det, fk, jit, rate, depth, breath=0.07, rasp=0.008)
         L += v * gain * np.cos(pan * np.pi / 2)
         R += v * gain * np.sin(pan * np.pi / 2)
 
-    # 대중이 들어올 때 페이드 없이 같은 맥에 맞춰 들어오도록 그대로 둔다.
+    # 목탁은 멀리서 들리듯 낮고 둥글게, 두 맥에 한 번. 내림 목탁은 뺀다
     per_l, per_r = np.zeros(N), np.zeros(N)
-    pulses = len(LINES) * 8
-    for p in range(pulses):
-        if p % 8 == 7 and p == pulses - 1:
+    for p in range(1, len(LINES) * LINE_PULSES, 2):
+        if (p - 1) % LINE_PULSES >= 8:
             continue
-        lv = 0.21 if p % 2 == 0 else 0.15
-        modes = [(640 * rng.uniform(.995, 1.005), 1, 0.046), (1085, 0.42, 0.028), (1760, 0.2, 0.014)]
-        at = p * PULSE
-        strike(per_l, at, modes, lv * 0.96, 0.12)
-        strike(per_r, at, modes, lv, 0.12)
-    # 줄을 여는 내림 목탁: 마지막 맥에서 점점 빨라지며 첫 줄로 들어간다
-    roll = np.cumsum([0.26, 0.2, 0.16, 0.13, 0.1, 0.08, 0.07, 0.06, 0.055, 0.05])
-    for k, d in enumerate(roll):
-        at = LOOP - 0.02 - roll[-1] + d - roll[0]
-        lv = 0.19 - 0.011 * k
-        modes = [(640, 1, 0.042), (1085, 0.42, 0.026), (1760, 0.2, 0.013)]
-        strike(per_l, at, modes, lv, 0.1)
-        strike(per_r, at, modes, lv, 0.1)
-    # 줄 머리에 경쇠
-    for at in (0.0, 8 * 8 * PULSE):
-        kk = [(1318, 1, 0.75), (3020, 0.3, 0.38), (4740, 0.12, 0.2)]
-        strike(per_l, at, kk, 0.075)
-        strike(per_r, at, kk, 0.075)
+        modes = [(500 * rng.uniform(.997, 1.003), 1, 0.06), (830, 0.2, 0.03)]
+        strike(per_l, p * PULSE, modes, 0.13)
+        strike(per_r, p * PULSE, modes, 0.13)
+    # 경쇠는 네 줄에 한 번, 아주 작게
+    for li in range(0, len(LINES), 4):
+        kk = [(1046, 1, 1.1), (2410, 0.18, 0.5)]
+        at = (li * LINE_PULSES) * PULSE + 0.1
+        strike(per_l, at, kk, 0.016)
+        strike(per_r, at, kk, 0.016)
 
-    irl, irr = impulse(1.9, 11), impulse(1.9, 22)
-    vl, vr = L * 0.86 + circular(L, irl) * 0.34, R * 0.86 + circular(R, irr) * 0.34
-    wl, wr = per_l * 0.86 + circular(per_l, irl) * 0.2, per_r * 0.86 + circular(per_r, irr) * 0.2
-    # 목소리 저역 정리 후 합산
+    # 소리가 법당 안쪽에서 번져 오도록 고역을 줄이고 잔향을 늘린다
+    soften = lambda x: lfilter([0.27], [1, -0.73], x)
+    L, R = soften(L), soften(R)
+    irl, irr = impulse(2.8, 11), impulse(2.8, 22)
+    vl, vr = L * 0.62 + circular(L, irl) * 0.5, R * 0.62 + circular(R, irr) * 0.5
+    wl, wr = per_l * 0.6 + circular(per_l, irl) * 0.35, per_r * 0.6 + circular(per_r, irr) * 0.35
     hp = lambda x: x - lfilter([0.012], [1, -0.988], x)
-    st = np.stack([hp(vl) * 0.5 + wl, hp(vr) * 0.5 + wr], 1)
-    st *= 0.86 / np.max(np.abs(st))
+    st = np.stack([hp(vl) + wl, hp(vr) + wr], 1)
+    st *= 10 ** (-27 / 20) / np.sqrt(np.mean(st ** 2))   # 절대 음량을 낮게 고정
     pad = int(PAD * OUT_SR)
     full = np.concatenate([st[-pad:], st, st[:pad]])
     sf.write(path, full, OUT_SR, format='MP3', bitrate_mode='CONSTANT', compression_level=0.62)
     sf.write(path.rsplit('.', 1)[0] + '.check.wav', st, OUT_SR)
-    print('loop', LOOP, 's rms dB', 20 * np.log10(np.sqrt(np.mean(st ** 2))))
+    voice_rms = np.sqrt(np.mean((hp(vl) + hp(vr)) ** 2))
+    per_rms = np.sqrt(np.mean((wl + wr) ** 2))
+    print('loop', LOOP, 'peak', float(np.max(np.abs(st))), 'voice/moktak dB', 20 * np.log10(voice_rms / per_rms))
 
 
 if __name__ == '__main__':

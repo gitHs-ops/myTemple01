@@ -1,7 +1,7 @@
 // 바람·풍경·목탁·종은 실시간 합성, 염불은 tools/render_yeombul.py로 렌더링한 음원을 반복 재생한다.
-const CHANT_URL = 'audio/yeombul.mp3';
+const CHANT_URL = 'audio/yeombul.mp3?v=2';
 const CHANT_PAD = 0.25;   // 렌더러의 PAD와 같아야 한다
-const CHANT_LOOP = 60;    // 렌더러의 LOOP와 같아야 한다
+const CHANT_LOOP = 64;    // 렌더러의 LOOP와 같아야 한다
 
 export class Sound {
   constructor(vol) { this.vol = vol; this.ctx = null; this.chantOn = false; }
@@ -41,7 +41,7 @@ export class Sound {
     const t = this.ctx.currentTime;
     const curve = (v) => Math.pow(v / 100, 1.6);
     this.buses.wind.gain.setTargetAtTime(curve(this.vol.wind) * 0.6, t, 0.05);
-    this.buses.chant.gain.setTargetAtTime(curve(this.vol.chant) * 1.6, t, 0.05);
+    this.buses.chant.gain.setTargetAtTime(curve(this.vol.chant) * 1.3, t, 0.05);
     this.buses.perc.gain.setTargetAtTime(curve(this.vol.perc), t, 0.05);
   }
 
