@@ -1,7 +1,7 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=8';
-import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y } from './garden.js?v=1';
+import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y } from './garden.js?v=2';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -17,7 +17,7 @@ const KEY = 'goyoam.v1';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 사생활 모드 등 */ } };
 const state = Object.assign(
-  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
+  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, season: 'auto', chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
   (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })()
 );
 const rollDay = () => { if (state.day !== today()) { state.day = today(); state.bowsToday = 0; save(); updateHud(); } };
@@ -79,16 +79,79 @@ scene.add(new THREE.Mesh(
     fragmentShader: 'uniform vec3 top; uniform vec3 bottom; varying vec3 p; void main(){ float k = pow(clamp(p.y*1.5+0.06,0.0,1.0),0.65); gl_FragColor = vec4(mix(bottom,top,k),1.0);\n#include <colorspace_fragment>\n}',
   })
 ));
-const starGeo = new THREE.BufferGeometry();
-{
-  const pts = [];
-  for (let i = 0; i < 500; i++) {
-    const a = Math.random() * Math.PI * 2, y = rand(0.08, 1), r = Math.sqrt(1 - y * y);
-    pts.push(Math.cos(a) * r * 380, y * 380, Math.sin(a) * r * 380);
+/* 은하수: 기울어진 대원을 따라 안개 같은 띠를 그리고 그 띠에 별을 더 모은다 */
+const MW_N = new THREE.Vector3(0.75, 0.42, -0.5).normalize();
+const MW_U = new THREE.Vector3().crossVectors(MW_N, new THREE.Vector3(0, 1, 0)).normalize();
+const MW_W = new THREE.Vector3().crossVectors(MW_N, MW_U);
+const MW_CENTER = new THREE.Vector3(0, 0.75, 0.66).normalize();   // 정원에서 올려다보는 쪽에 밝은 중심부
+const milkyUni = { op: { value: 0 }, n: { value: MW_N }, u: { value: MW_U }, w: { value: MW_W }, l0: { value: Math.atan2(MW_CENTER.dot(MW_U), MW_CENTER.dot(MW_W)) } };
+const milky = new THREE.Mesh(
+  new THREE.SphereGeometry(390, 48, 32),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending, fog: false, toneMapped: false, uniforms: milkyUni,
+    vertexShader: 'varying vec3 p; void main(){ p = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: `uniform float op; uniform float l0; uniform vec3 n; uniform vec3 u; uniform vec3 w; varying vec3 p;
+      float hash(vec3 q){ q = fract(q*0.3183099+0.1); q *= 17.0; return fract(q.x*q.y*q.z*(q.x+q.y+q.z)); }
+      float noise(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.0-2.0*f);
+        return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+                   mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z); }
+      float fbm(vec3 x){ float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a*noise(x); x = x*2.03+vec3(11.3); a *= 0.5; } return v; }
+      void main(){
+        vec3 d = normalize(p);
+        float b = dot(d, n), l = atan(dot(d, u), dot(d, w));
+        float dl = atan(sin(l-l0), cos(l-l0));
+        float bulge = exp(-dl*dl/0.9);
+        float width = 0.1 + 0.09*bulge;
+        float core = exp(-b*b/(width*width)), wide = exp(-b*b/(width*width*6.0));
+        float f = fbm(d*6.0+vec3(3.0)), g = fbm(d*18.0+vec3(9.0));
+        float rift = smoothstep(0.44, 0.66, fbm(d*vec3(9.0,9.0,9.0)+vec3(1.7)))*exp(-b*b/(width*width*0.4));
+        float a = (core*(0.3+0.9*f+0.35*g) + wide*0.2*(0.45+f))*(0.62+1.1*bulge);
+        a *= 1.0 - 0.82*rift;
+        a *= smoothstep(-0.02, 0.2, d.y);
+        vec3 col = mix(vec3(0.55,0.67,1.0), vec3(1.0,0.86,0.68), clamp(core*bulge,0.0,1.0));
+        gl_FragColor = vec4(col*(a*a*0.06 + a*0.028)*op, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  })
+);
+milky.renderOrder = -2; milky.visible = false; scene.add(milky);
+const starUni = { op: { value: 0 }, time: { value: 0 }, ratio: { value: pixelRatio } };
+const stars = (() => {
+  const pos = [], size = [], tint = [], seed = [], v = new THREE.Vector3();
+  const TINTS = [[1, 1, 1], [0.8, 0.88, 1], [1, 0.92, 0.78], [1, 0.8, 0.68]];
+  const add = (x, y, z, sz) => {
+    pos.push(x * 380, y * 380, z * 380); size.push(sz); seed.push(Math.random() * 6.28);
+    tint.push(...pick(TINTS));
+  };
+  for (let i = 0; i < 1100; i++) {
+    const a = Math.random() * Math.PI * 2, y = rand(0.04, 1), r = Math.sqrt(1 - y * y);
+    const k = Math.random();
+    add(Math.cos(a) * r, y, Math.sin(a) * r, k > 0.985 ? 3.4 : k > 0.88 ? 2.2 : 1.35);
   }
-  starGeo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-}
-const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 1.5, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+  for (let i = 0; i < 2400; i++) {               // 띠에 모인 작은 별
+    const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+    const lat = gauss() * 0.26, lon = milkyUni.l0.value + (Math.random() < 0.45 ? gauss() * 1.4 : Math.random() * 6.28);
+    v.copy(MW_U).multiplyScalar(Math.sin(lon) * Math.cos(lat)).addScaledVector(MW_W, Math.cos(lon) * Math.cos(lat)).addScaledVector(MW_N, Math.sin(lat));
+    if (v.y < 0.03) continue;
+    add(v.x, v.y, v.z, Math.random() > 0.95 ? 1.9 : 1.05);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aSize', new THREE.Float32BufferAttribute(size, 1));
+  g.setAttribute('aTint', new THREE.Float32BufferAttribute(tint, 3));
+  g.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 1));
+  const pts = new THREE.Points(g, new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: false, toneMapped: false, blending: THREE.AdditiveBlending, uniforms: starUni,
+    vertexShader: `attribute float aSize; attribute vec3 aTint; attribute float aSeed; uniform float time; uniform float ratio; varying vec3 c; varying float a;
+      void main(){ c = aTint; a = aSize > 2.0 ? 0.82 + 0.18*sin(time*1.6+aSeed) : 0.6 + 0.25*sin(time*0.9+aSeed); gl_PointSize = aSize*ratio; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `uniform float op; varying vec3 c; varying float a;
+      void main(){ float r = length(gl_PointCoord-0.5)*2.0; float k = smoothstep(1.0, 0.25, r); gl_FragColor = vec4(c*k*a*op, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  }));
+  pts.renderOrder = -1; pts.frustumCulled = false; pts.visible = false;
+  return pts;
+})();
 scene.add(stars);
 
 const SKY = [
@@ -119,15 +182,19 @@ function applyTime() {
   sun.intensity = THREE.MathUtils.lerp(a.sun, b.sun, t);
   mixHex(a.sunC, b.sunC, t, sun.color);
   lanternGlow = THREE.MathUtils.lerp(a.glow, b.glow, t);
-  stars.material.opacity = lanternGlow > 0.7 ? (lanternGlow - 0.7) / 0.3 : 0;
+  const nightOp = lanternGlow > 0.7 ? (lanternGlow - 0.7) / 0.3 : 0;
+  starUni.op.value = milkyUni.op.value = nightOp;
+  stars.visible = milky.visible = nightOp > 0;
   lanternMats.forEach((m) => { m.emissiveIntensity = 0.28 + lanternGlow * 0.95; });
   gardenSky?.(skyUniforms.bottom.value, lanternGlow);
 }
 
 /* ───────── 산·숲·마당 ───────── */
+const forest = { leaf: null, items: [] };
 const ground = mesh(new THREE.CircleGeometry(420, 48), new THREE.MeshLambertMaterial({ color: 0x6f8f5d }), 0, -0.9, 0, scene);
 ground.rotation.x = -Math.PI / 2;
 
+const mountainMats = [];
 function mountainRing(radius, base, amp, color, seed) {
   const N = 96, pos = [], idx = [];
   for (let i = 0; i <= N; i++) {
@@ -140,7 +207,8 @@ function mountainRing(radius, base, amp, color, seed) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(idx); g.computeVertexNormals();
-  scene.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide })));
+  const mat = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide }); mountainMats.push(mat);
+  scene.add(new THREE.Mesh(g, mat));
 }
 mountainRing(78, 10, 18, 0x5d7f58, 1.2);
 mountainRing(112, 22, 26, 0x6c8a75, 4.1);
@@ -151,21 +219,23 @@ mountainRing(150, 38, 34, 0x8aa49a, 7.7);
   const tr = new THREE.InstancedMesh(trunk, new THREE.MeshLambertMaterial({ color: 0x5b4634 }), COUNT);
   const lf = new THREE.InstancedMesh(leaf, new THREE.MeshLambertMaterial({ color: 0xffffff }), COUNT * 3);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), col = new THREE.Color();
-  const GREENS = ['#3f6b45', '#4d7a4c', '#356040', '#5c8551', '#b98a3a', '#c96f3a'];
+  const GREENS = ['#3f6b45', '#4d7a4c', '#356040', '#5c8551'];
   for (let i = 0; i < COUNT; i++) {
     let x, z;
     do { const a = Math.random() * Math.PI * 2, r = rand(15, 76); x = Math.sin(a) * r; z = Math.cos(a) * r; }
     while ((Math.abs(x) < 14 && z > -14 && z < 13) || (Math.abs(x) < 25 && z > 12 && z < 51));
     const sc = rand(1, 2.2);
     p.set(x, -0.9 + 1.1 * sc, z); s.set(sc, sc, sc); m.compose(p, q, s); tr.setMatrixAt(i, m);
-    const c = pick(GREENS);
+    const broad = Math.random() < 0.34, c = pick(GREENS), shade = rand(0, 1);
     for (let t = 0; t < 3; t++) {
       const k = 1 - t * 0.24;
       p.set(x, -0.9 + (2.5 + t * 1.45) * sc, z); s.set(sc * k, sc, sc * k); m.compose(p, q, s);
-      lf.setMatrixAt(i * 3 + t, m); lf.setColorAt(i * 3 + t, col.set(c).offsetHSL(0, 0, rand(-0.03, 0.03)));
+      const jitter = rand(-0.03, 0.03);
+      forest.items.push({ broad, base: c, shade, jitter });
+      lf.setMatrixAt(i * 3 + t, m); lf.setColorAt(i * 3 + t, col.set(c).offsetHSL(0, 0, jitter));
     }
   }
-  scene.add(tr, lf);
+  scene.add(tr, lf); forest.leaf = lf;
 }
 
 /* ───────── 법당 건물 ───────── */
@@ -486,13 +556,52 @@ const cushionGroup = new THREE.Group(); scene.add(cushionGroup);
 }
 
 /* ───────── 정원 ───────── */
-const garden = buildGarden({ scene, mesh, std, canvasTex, seatGroup: cushionGroup });
+const garden = buildGarden({ scene, mesh, std, canvasTex, seatGroup: cushionGroup, still: reduceMotion });
 garden.seats.forEach((q) => {
   q.mesh.userData.cushion = cushions.length;
   cushions.push(q);
 });
 garden.setStones(state.stones);
 let mode = 'temple';
+
+/* ───────── 계절 ───────── */
+const SEASONS = {
+  spring: { name: '봄', desc: '벚꽃잎이 흩날리고 땅과 물에 쌓입니다', ground: '#7fa565', hills: ['#6f9a63', '#7fa183', '#9db6a6'], broad: ['#a9c96c', '#bcd67c', '#8fbf66', '#f0c3d0'], fall: ['#fbd5df', '#f7bccd'], fallN: 46, snow: 0 },
+  summer: { name: '여름', desc: '짙은 녹음과 연꽃, 밤에는 반딧불이', ground: '#5f8a4d', hills: ['#4a7a4c', '#5c8768', '#7f9f8e'], broad: ['#4f8f4a', '#5d9c50', '#457f45', '#69a557'], fall: ['#5d9c50', '#76ab58'], fallN: 8, snow: 0 },
+  autumn: { name: '가을', desc: '단풍이 들고 낙엽이 떨어집니다', ground: '#8b8f55', hills: ['#9a7a45', '#97825f', '#a2a08c'], broad: ['#c96f3a', '#b98a3a', '#d9552e', '#e0a33a'], fall: ['#d9852f', '#c95b2b', '#e4b23a', '#b9772b'], fallN: 46, snow: 0 },
+  winter: { name: '겨울', desc: '눈이 내리고 연못이 얼어붙습니다', ground: '#dfe8ee', hills: ['#c3d0d6', '#d3dee3', '#e4ecf0'], broad: ['#cdd6dc', '#d8e0e5'], fall: ['#ffffff'], fallN: 46, snow: 0.62 },
+};
+const autoSeason = () => {
+  const m = new Date().getMonth() + 1;
+  return m >= 3 && m <= 5 ? 'spring' : m >= 6 && m <= 8 ? 'summer' : m >= 9 && m <= 11 ? 'autumn' : 'winter';
+};
+function currentSeason() {
+  const forced = params.get('season');
+  if (SEASONS[forced]) return forced;
+  return SEASONS[state.season] ? state.season : autoSeason();
+}
+let seasonNow = null;
+function applySeason() {
+  const k = currentSeason();
+  if (k === seasonNow) return;
+  seasonNow = k;
+  const c = SEASONS[k], col = new THREE.Color(), white = new THREE.Color(0xeef3f6);
+  ground.material.color.set(c.ground);
+  mountainMats.forEach((m, i) => m.color.set(c.hills[i]));
+  forest.items.forEach((it, i) => {
+    if (it.broad) col.set(c.broad[Math.floor(it.shade * c.broad.length)]);
+    else col.set(it.base);
+    col.offsetHSL(0, 0, it.jitter).lerp(white, c.snow);
+    forest.leaf.setColorAt(i, col);
+  });
+  forest.leaf.instanceColor.needsUpdate = true;
+  for (let i = 0; i < LEAVES; i++) leafMesh.setColorAt(i, col.set(c.fall[i % c.fall.length]));
+  if (LEAVES) leafMesh.instanceColor.needsUpdate = true;
+  leafMesh.count = Math.min(LEAVES, c.fallN);
+  garden.setSeason(k);
+  const label = document.getElementById('seasonLabel');
+  if (label) label.textContent = c.name;
+}
 
 /* ───────── 동자승 ───────── */
 const G = {
@@ -754,13 +863,15 @@ function strollerTick(t) {
 
 /* ───────── 입력 ───────── */
 const orbit = { theta: 0, phi: 1.22, dist: 8.2 };
+const SKY_PHI = 2.15;
+let skyGoal = null, skyBack = null;
 const camTarget = new THREE.Vector3(0, 1.15, 7);
 const pointers = new Map();
 let tap = null, pinch = 0;
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitV = new THREE.Vector3();
 let entered = false;
-const modalOpen = () => !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden;
+const modalOpen = () => !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden || !$('seasonModal').hidden;
 
 canvas.addEventListener('pointerdown', (e) => {
   if (!entered) return;
@@ -780,7 +891,8 @@ canvas.addEventListener('pointermove', (e) => {
   if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap.moved = true;
   if (tap?.moved) {
     orbit.theta -= dx * 0.006;
-    orbit.phi = clamp(orbit.phi - dy * 0.005, 0.42, 1.5);
+    skyGoal = null;
+    orbit.phi = clamp(orbit.phi - dy * 0.005, 0.42, mode === 'garden' ? SKY_PHI : 1.5);
   }
 });
 const endPointer = (e) => {
@@ -1068,7 +1180,10 @@ function applyMode(next) {
   orbit.theta = inGarden ? Math.PI : 0; orbit.phi = 1.22; orbit.dist = inGarden ? 9.5 : 8.2;
   camSnap = true;
   ['btnBow', 'btnAuto'].forEach((id) => { $(id).hidden = inGarden; });
-  ['btnStone', 'btnFeed'].forEach((id) => { $(id).hidden = !inGarden; });
+  ['btnStone', 'btnFeed', 'seasonBtn', 'skyBtn'].forEach((id) => { $(id).hidden = !inGarden; });
+  skyGoal = null; skyBack = null; $('skyLabel').textContent = '하늘 보기';
+  leafMesh.visible = !inGarden;
+  garden.setActive(inGarden);
   $('modeLabel').textContent = inGarden ? '법당으로' : '정원으로';
   $('modeIconLeaf').style.display = inGarden ? 'none' : ''; $('modeIconHall').style.display = inGarden ? '' : 'none';
   sound.setGarden(inGarden);
@@ -1086,6 +1201,25 @@ $('modeBtn').onclick = () => {
   }, wait);
 };
 $('openSettings').onclick = () => openModal('settingsModal');
+$('skyBtn').onclick = () => {
+  if (skyBack) { skyGoal = skyBack; skyBack = null; $('skyLabel').textContent = '하늘 보기'; return; }
+  skyBack = { phi: orbit.phi, dist: orbit.dist };
+  skyGoal = { phi: SKY_PHI, dist: 3.6 };
+  $('skyLabel').textContent = '돌아오기';
+  if (!stars.visible) toast('별과 은하수는 저녁 7시 반쯤부터 새벽 5시 반쯤까지 보입니다', 4000);
+};
+fillList('seasonList', [
+  { id: 'auto', name: '오늘 날짜에 맞추기', desc: '3~5월 봄, 6~8월 여름, 9~11월 가을, 12~2월 겨울' },
+  ...Object.entries(SEASONS).map(([id, c]) => ({ id, name: c.name, desc: c.desc })),
+], (id) => {
+  state.season = id; save();
+  params.delete('season');
+  applySeason(); drawSeasons();
+});
+function drawSeasons() {
+  markList('seasonList', state.season, (id, on) => (on && id === 'auto' ? `지금 ${SEASONS[seasonNow].name}` : on ? '선택됨' : ''));
+}
+$('seasonBtn').onclick = () => { drawSeasons(); openModal('seasonModal'); };
 
 /* 모달 */
 let lastFocus = null;
@@ -1095,7 +1229,7 @@ function openModal(id) {
   $(id).querySelector('.modal-x').focus();
 }
 function closeModals() {
-  ['beadsModal', 'settingsModal', 'chantModal'].forEach((id) => { $(id).hidden = true; });
+  ['beadsModal', 'settingsModal', 'chantModal', 'seasonModal'].forEach((id) => { $(id).hidden = true; });
   lastFocus?.focus?.(); lastFocus = null;
 }
 document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = closeModals; });
@@ -1210,7 +1344,7 @@ function updateCamera(dt) {
     camTarget.z + camDist * sinP * Math.cos(orbit.theta)
   );
   camera.position.copy(camPos);
-  camera.lookAt(camTarget.x, camTarget.y + 0.75, camTarget.z);
+  camera.lookAt(camTarget.x, camTarget.y + 0.75 + Math.max(0, orbit.phi - 1.5) * 3.2, camTarget.z);
 }
 
 const dummy = new THREE.Object3D();
@@ -1228,6 +1362,11 @@ function frame(now) {
   npcTick(t);
   strollerTick(t);
   garden.update(t, dt);
+  starUni.time.value = t; starUni.ratio.value = pixelRatio;
+  if (skyGoal) {
+    orbit.phi = damp(orbit.phi, skyGoal.phi, 2.4, dt); orbit.dist = damp(orbit.dist, skyGoal.dist, 2.4, dt);
+    if (Math.abs(orbit.phi - skyGoal.phi) < 0.004 && Math.abs(orbit.dist - skyGoal.dist) < 0.02) skyGoal = null;
+  }
   if (placing && !placingDrop && !player?.onArrive) placing = false;
 
   if (!reduceMotion) {
@@ -1282,7 +1421,8 @@ $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$(
 
 gardenSky = garden.setSky;
 applyTime();
-setInterval(applyTime, 60000);
+applySeason();
+setInterval(() => { applyTime(); applySeason(); }, 60000);
 setInterval(yebulTick, 15000);
 setInterval(() => { rollDay(); communityTick(performance.now() / 1000); }, 3000);
 
@@ -1296,4 +1436,4 @@ $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, garden, strollers, npcs, cushions, sound };
+window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, milky: milkyUni, garden, strollers, npcs, cushions, sound };

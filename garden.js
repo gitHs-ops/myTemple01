@@ -16,7 +16,7 @@ const seeded = (seed) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
 
-export function buildGarden({ scene, mesh, std, canvasTex, seatGroup }) {
+export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
   const rnd = seeded(2610);
   const r = (a, b) => a + rnd() * (b - a);
   const root = new THREE.Group(); scene.add(root);
@@ -25,14 +25,26 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup }) {
   const dummy = new THREE.Object3D();
 
   // 잔디와 흙길
-  const lawnTex = canvasTex(256, 256, (g, w, h) => {
-    g.fillStyle = '#7f9f62'; g.fillRect(0, 0, w, h);
+  const LAWN = {
+    spring: { base: '#8fb56a', h: [80, 105], s: [38, 52], l: [42, 56], dots: ['#fff6d8', '#f7c7d6', '#ffe27a'] },
+    summer: { base: '#6f9656', h: [95, 120], s: [30, 45], l: [30, 44] },
+    autumn: { base: '#a09a5c', h: [42, 72], s: [30, 46], l: [38, 52], dots: ['#c9702f', '#d9a53a'] },
+    winter: { base: '#eef3f7', h: [205, 215], s: [15, 30], l: [88, 97] },
+  };
+  const lawnCache = {};
+  const lawnTexFor = (k) => (lawnCache[k] ??= canvasTex(256, 256, (g, w, h) => {
+    const c = LAWN[k], m = (q) => q[0] + Math.random() * (q[1] - q[0]);
+    g.fillStyle = c.base; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 2600; i++) {
-      g.fillStyle = `hsl(${85 + Math.random() * 25},${28 + Math.random() * 16}%,${34 + Math.random() * 20}%)`;
+      g.fillStyle = `hsl(${m(c.h)},${m(c.s)}%,${m(c.l)}%)`;
       g.fillRect(Math.random() * w, Math.random() * h, 1.6, 3.4);
     }
-  }, [16, 16]);
-  const lawn = mesh(new THREE.PlaneGeometry(56, 46), lamb(0xffffff, { map: lawnTex }), 0, GROUND_Y + 0.012, 31, root);
+    (c.dots || []).forEach((d) => {
+      g.fillStyle = d;
+      for (let i = 0; i < 26; i++) { g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 1.5, 0, 6.3); g.fill(); }
+    });
+  }, [16, 16]));
+  const lawn = mesh(new THREE.PlaneGeometry(56, 46), lamb(0xffffff, { map: lawnTexFor('summer') }), 0, GROUND_Y + 0.012, 31, root);
   lawn.rotation.x = -Math.PI / 2;
 
   // 연못
@@ -48,12 +60,12 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup }) {
   const bedMat = lamb(0x2f4a44, { side: THREE.DoubleSide });
   place(new THREE.Mesh(pondGeo, bedMat), GROUND_Y + 0.03);
   const water = {
-    time: { value: 0 }, sky: { value: new THREE.Color(0xbfd8e6) }, deep: { value: new THREE.Color(0x2d6a68) }, ripple: { value: new THREE.Vector4(0, 0, -100, 0) },
+    time: { value: 0 }, sky: { value: new THREE.Color(0xbfd8e6) }, deep: { value: new THREE.Color(0x2d6a68) }, ripple: { value: new THREE.Vector4(0, 0, -100, 0) }, ice: { value: 0 },
   };
   const waterMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false, uniforms: water,
     vertexShader: 'varying vec3 w; void main(){ vec4 p = modelMatrix * vec4(position,1.0); w = p.xyz; gl_Position = projectionMatrix * viewMatrix * p; }',
-    fragmentShader: `uniform float time; uniform vec3 sky; uniform vec3 deep; uniform vec4 ripple; varying vec3 w;
+    fragmentShader: `uniform float time; uniform vec3 sky; uniform vec3 deep; uniform vec4 ripple; uniform float ice; varying vec3 w;
       void main(){
         vec2 p = w.xz;
         vec2 n = vec2(
@@ -64,13 +76,15 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup }) {
           vec2 d = p - ripple.xy; float l = length(d) + 0.001;
           n += (d/l) * sin(l*7.0 - age*7.0) * exp(-abs(l-age*1.1)*2.2) * (1.0-age/4.0) * 2.4;
         }
+        n *= 1.0 - ice * 0.85;
         vec3 v = normalize(cameraPosition - w);
         vec3 nor = normalize(vec3(n.x*0.075, 1.0, n.y*0.075));
         float f = pow(1.0 - max(dot(v, nor), 0.0), 2.6);
         vec3 h = normalize(normalize(vec3(0.3,0.8,0.5)) + v);
         float s = pow(max(dot(nor, h), 0.0), 170.0);
         vec3 col = mix(deep, sky, 0.2 + f*0.8) + s*vec3(1.0,0.95,0.85)*0.75;
-        gl_FragColor = vec4(col, 0.46 + f*0.42);
+        col = mix(col, vec3(0.82, 0.9, 0.95), ice * 0.62);
+        gl_FragColor = vec4(col, mix(0.46 + f*0.42, 0.8, ice));
         #include <colorspace_fragment>
       }`,
   });
@@ -80,13 +94,14 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup }) {
   // 연못 둘레 돌
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
   const rims = new THREE.InstancedMesh(rockGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), 74);
-  const col = new THREE.Color();
+  const col = new THREE.Color(), rimTones = [];
   for (let i = 0; i < 74; i++) {
     const a = (i / 74) * Math.PI * 2, R = pondR(a) + r(0, 0.14);
     dummy.position.set(POND.x + Math.sin(a) * R, GROUND_Y + 0.08, POND.z + Math.cos(a) * R);
     dummy.scale.set(r(0.34, 0.56), r(0.14, 0.26), r(0.34, 0.56));
     dummy.rotation.set(r(0, 1), r(0, 6), r(0, 1)); dummy.updateMatrix();
-    rims.setMatrixAt(i, dummy.matrix); rims.setColorAt(i, col.setHSL(0.09, 0.05, r(0.48, 0.66)));
+    const tone = r(0.48, 0.66); rimTones.push(tone);
+    rims.setMatrixAt(i, dummy.matrix); rims.setColorAt(i, col.setHSL(0.09, 0.05, tone));
   }
   root.add(rims);
 
@@ -136,14 +151,16 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup }) {
   let feed = null;
 
   // 바위
+  const rockMats = [];
+  const rockMat = () => { const m = new THREE.MeshLambertMaterial({ color: 0x8f8c84, flatShading: true }); rockMats.push(m); return m; };
   for (let i = 0; i < 9; i++) {
     const a = (i / 9) * 6.28 + 0.4, R = pondR(a) + r(0.7, 1.1);
     if (i % 3 !== 0) continue;
-    const big = mesh(rockGeo, new THREE.MeshLambertMaterial({ color: 0x8f8c84, flatShading: true }), POND.x + Math.sin(a) * R, GROUND_Y + 0.42, POND.z + Math.cos(a) * R, root);
+    const big = mesh(rockGeo, rockMat(), POND.x + Math.sin(a) * R, GROUND_Y + 0.42, POND.z + Math.cos(a) * R, root);
     big.scale.set(r(0.75, 1.15), r(0.5, 0.8), r(0.75, 1.1)); big.rotation.set(r(0, 1), r(0, 6), 0);
   }
   [[-1.4, 41], [9, 42], [-19, 18.5], [18, 18]].forEach(([x, z]) => {
-    const b = mesh(rockGeo, new THREE.MeshLambertMaterial({ color: 0x8f8c84, flatShading: true }), x, GROUND_Y + 0.5, z, root);
+    const b = mesh(rockGeo, rockMat(), x, GROUND_Y + 0.5, z, root);
     b.scale.set(r(1, 1.5), r(0.6, 1), r(1, 1.4)); b.rotation.set(r(0, 1), r(0, 6), 0);
     colliders.push([x, z, 1.7]);
   });
@@ -164,20 +181,59 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup }) {
 
   // 단풍나무
   const trunkMat = lamb(0x4e3a2b), crownGeo = new THREE.IcosahedronGeometry(1, 1);
-  const crownCols = [0xc8452d, 0xdb6a2b, 0xe08c2e, 0xb8382e];
+  const CROWN = {
+    spring: [0xf7c5d3, 0xf2aec4, 0xfad6df, 0xeea3bc],
+    summer: [0x4f8f4a, 0x5d9c50, 0x457f45, 0x69a557],
+    autumn: [0xc8452d, 0xdb6a2b, 0xe08c2e, 0xb8382e],
+  };
+  const crownCols = CROWN.autumn, trees = [];
   [[17, 22], [18.5, 38], [8, 43.5], [-3.5, 45], [-18.5, 42], [-19.5, 25], [18, 44], [5, 24.5]].forEach(([x, z], i) => {
     const t = new THREE.Group(); t.position.set(x, GROUND_Y, z); root.add(t);
     const s = r(0.9, 1.25);
     mesh(new THREE.CylinderGeometry(0.16 * s, 0.3 * s, 3 * s, 7), trunkMat, 0, 1.5 * s, 0, t);
     const mat = new THREE.MeshLambertMaterial({ color: crownCols[i % 4], flatShading: true });
+    const crowns = [];
     for (let k = 0; k < 5; k++) {
       const c = mesh(crownGeo, mat, r(-1.1, 1.1) * s, (3.1 + r(0, 1.3)) * s, r(-1.1, 1.1) * s, t);
       c.scale.set(r(1, 1.5) * s, r(0.75, 1.1) * s, r(1, 1.5) * s);
+      crowns.push(c);
     }
+    trees.push({ crowns, mat, s, group: t, index: i });
     colliders.push([x, z, 0.8]);
   });
 
+  // 겨울의 빈 가지와 가지 위의 눈
+  {
+    const r2 = seeded(777), q2 = (a, b) => a + r2() * (b - a);
+    const limb = new THREE.CylinderGeometry(0.55, 1, 1, 5); limb.translate(0, 0.5, 0);
+    const blob = new THREE.IcosahedronGeometry(1, 1), snowMat = lamb(0xf4f8fb), up = new THREE.Vector3(0, 1, 0);
+    const addLimb = (bare, mat, from, to, radius, snow) => {
+      const d = to.clone().sub(from), m = new THREE.Mesh(limb, mat);
+      m.position.copy(from); m.quaternion.setFromUnitVectors(up, d.clone().normalize()); m.scale.set(radius, d.length(), radius);
+      bare.add(m);
+      if (snow) {
+        const c = new THREE.Mesh(blob, snowMat); c.position.copy(to).add(new THREE.Vector3(0, radius * 1.4, 0));
+        c.scale.set(radius * 3.4, radius * 1.5, radius * 3.4); bare.add(c);
+      }
+    };
+    trees.forEach((tr) => {
+      const bare = new THREE.Group(); bare.visible = false; tr.group.add(bare); tr.bare = bare;
+      const root0 = new THREE.Vector3(0, 2.7 * tr.s, 0);
+      tr.crowns.forEach((c) => {
+        const end = c.position.clone().multiplyScalar(0.92);
+        addLimb(bare, trunkMat, root0, end, 0.075 * tr.s, true);
+        for (let k = 0; k < 3; k++) {
+          const tip = end.clone().add(new THREE.Vector3(q2(-0.9, 0.9), q2(0.1, 0.9), q2(-0.9, 0.9)).multiplyScalar(tr.s));
+          addLimb(bare, trunkMat, end, tip, 0.03 * tr.s, k === 0);
+        }
+      });
+      const capMat = new THREE.Mesh(blob, snowMat); capMat.position.copy(root0); capMat.scale.set(0.2 * tr.s, 0.1 * tr.s, 0.2 * tr.s); bare.add(capMat);
+    });
+  }
+
   // 대숲
+  let bambooLeaf = null;
+  const bambooBase = [];
   {
     const C = 46, culm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.07, 1, 6), lamb(0xffffff), C);
     const LEAF = 5, leaf = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), C * LEAF);
@@ -188,10 +244,11 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup }) {
       for (let k = 0; k < LEAF; k++) {
         dummy.position.set(x + r(-0.7, 0.7), GROUND_Y + h - r(0, 2.6), z + r(-0.7, 0.7));
         dummy.rotation.set(r(0, 3), r(0, 3), 0); dummy.scale.set(r(0.6, 1), r(0.3, 0.55), r(0.6, 1)); dummy.updateMatrix();
-        leaf.setMatrixAt(i * LEAF + k, dummy.matrix); leaf.setColorAt(i * LEAF + k, col.set(0x5e9150).offsetHSL(0, 0, r(-0.05, 0.05)));
+        col.set(0x5e9150).offsetHSL(0, 0, r(-0.05, 0.05)); bambooBase.push(col.clone());
+        leaf.setMatrixAt(i * LEAF + k, dummy.matrix); leaf.setColorAt(i * LEAF + k, col);
       }
     }
-    root.add(culm, leaf);
+    root.add(culm, leaf); bambooLeaf = leaf;
     for (let x = -22; x <= -15; x += 2.3) for (let z = 34; z <= 47; z += 2.3) colliders.push([x, z, 1.25]);
   }
 
@@ -250,16 +307,137 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup }) {
     if (stoneMesh.instanceColor) stoneMesh.instanceColor.needsUpdate = true;
   };
 
+  /* ───────── 계절: 떨어지는 것, 쌓인 것, 반딧불이 ───────── */
+  const fxR = seeded(4242), fr = (a, b) => a + fxR() * (b - a);
+  const small = typeof innerWidth === 'number' && innerWidth < 700;
+  const petalShape = new THREE.Shape();
+  petalShape.moveTo(0, -0.1); petalShape.bezierCurveTo(0.11, -0.04, 0.1, 0.07, 0.015, 0.1); petalShape.lineTo(0, 0.075); petalShape.lineTo(-0.015, 0.1); petalShape.bezierCurveTo(-0.1, 0.07, -0.11, -0.04, 0, -0.1);
+  const leafShape = new THREE.Shape();
+  leafShape.moveTo(0, -0.17); leafShape.bezierCurveTo(0.1, -0.12, 0.15, -0.01, 0.11, 0.05); leafShape.bezierCurveTo(0.08, 0.1, 0.03, 0.13, 0, 0.2);
+  leafShape.bezierCurveTo(-0.03, 0.13, -0.08, 0.1, -0.11, 0.05); leafShape.bezierCurveTo(-0.15, -0.01, -0.1, -0.12, 0, -0.17);
+  const fallMat = () => new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, emissive: 0x2b2b30 });
+  const MAXF = small ? 300 : 520;
+  const fall = {
+    petal: new THREE.InstancedMesh(new THREE.ShapeGeometry(petalShape, 5), new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, emissive: 0x6a4a56 }), MAXF),
+    leaf: new THREE.InstancedMesh(new THREE.ShapeGeometry(leafShape, 5), fallMat(), MAXF),
+    snow: new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.05, 0), new THREE.MeshBasicMaterial({ color: 0xffffff }), MAXF),
+  };
+  Object.values(fall).forEach((m) => { m.frustumCulled = false; m.visible = false; m.count = 0; root.add(m); });
+  const respot = (f) => { f.x = fr(-27, 27); f.z = fr(11, 50); };
+  const flakes = Array.from({ length: MAXF }, () => { const f = { y: fr(0, 14), k: fr(0, 1), ph: fr(0, 6.28), rs: fr(0.6, 1.6) }; respot(f); return f; });
+  const FALL = {
+    spring: { kind: 'petal', n: 1, sp: [0.34, 0.62], sway: 1.3, size: [1, 1.5], cols: [0xfbd5df, 0xf7bccd, 0xfde6ec, 0xf3a8c0] },
+    summer: { kind: 'leaf', n: 0.06, sp: [0.6, 1], sway: 1.2, size: [0.8, 1.1], cols: [0x5d9c50, 0x76ab58] },
+    autumn: { kind: 'leaf', n: 0.5, sp: [0.55, 1.05], sway: 1.6, size: [0.9, 1.5], cols: [0xc8452d, 0xdb6a2b, 0xe6a02e, 0xb8382e, 0xd9852f] },
+    winter: { kind: 'snow', n: 1, sp: [0.55, 1.05], sway: 0.55, size: [0.7, 1.5], cols: [0xffffff] },
+  };
+  let fallNow = null, active = false, fxDirty = true;
+  const writeFall = (t, dt) => {
+    const c = fallNow, m = fall[c.kind], n = m.count;
+    for (let i = 0; i < n; i++) {
+      const f = flakes[i], sp = c.sp[0] + f.k * (c.sp[1] - c.sp[0]);
+      f.y -= sp * dt;
+      if (f.y < GROUND_Y + 0.02) { f.y = 14; respot(f); }
+      dummy.position.set(f.x + Math.sin(t * 0.5 * f.rs + f.ph) * c.sway, f.y, f.z + Math.cos(t * 0.38 * f.rs + f.ph) * c.sway * 0.7);
+      if (c.kind === 'snow') dummy.rotation.set(0, 0, 0);
+      else dummy.rotation.set(t * f.rs + f.ph, t * 0.7 * f.rs + f.ph * 2, Math.sin(t * f.rs + f.ph) * 1.1);
+      dummy.scale.setScalar(c.size[0] + f.k * (c.size[1] - c.size[0]));
+      dummy.updateMatrix(); m.setMatrixAt(i, dummy.matrix);
+    }
+    m.instanceMatrix.needsUpdate = true;
+  };
+
+  // 바닥과 수면에 쌓인 꽃잎·낙엽
+  const LITTER = small ? 420 : 720;
+  const litterGeo = new THREE.ShapeGeometry(leafShape, 4); litterGeo.rotateX(-Math.PI / 2);
+  const litter = new THREE.InstancedMesh(litterGeo, lamb(0xffffff, { side: THREE.DoubleSide }), LITTER);
+  litter.frustumCulled = false; litter.count = 0; root.add(litter);
+  {
+    const spots = trees.map((tr) => [tr.group.position.x, tr.group.position.z]);
+    for (let i = 0; i < LITTER; i++) {
+      let x, z;
+      if (i % 3) { const [sx, sz] = spots[i % spots.length], a = fr(0, 6.28), R = fr(0.5, 5.5); x = sx + Math.sin(a) * R; z = sz + Math.cos(a) * R; } else { x = fr(-22, 22); z = fr(14, 48); }
+      const a = Math.atan2(x - POND.x, z - POND.z), inPondNow = Math.hypot(x - POND.x, z - POND.z) < pondR(a) - 0.2;
+      dummy.position.set(x, GROUND_Y + (inPondNow ? 0.128 : 0.03) + i * 0.00003, z);
+      dummy.rotation.set(fr(-0.08, 0.08), fr(0, 6.28), fr(-0.08, 0.08)); dummy.scale.setScalar(fr(0.7, 1.4)); dummy.updateMatrix();
+      litter.setMatrixAt(i, dummy.matrix);
+    }
+  }
+
+  // 여름밤 반딧불이
+  const FLY = small ? 34 : 60;
+  const flyCore = new THREE.InstancedMesh(new THREE.SphereGeometry(0.035, 6, 5), new THREE.MeshBasicMaterial({ color: 0xe6ff8a, toneMapped: false }), FLY);
+  const flyHalo = new THREE.InstancedMesh(new THREE.SphereGeometry(0.16, 8, 6), new THREE.MeshBasicMaterial({ color: 0xc8f060, transparent: true, opacity: 0.24, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }), FLY);
+  flyCore.frustumCulled = flyHalo.frustumCulled = false; flyCore.visible = flyHalo.visible = false; root.add(flyCore, flyHalo);
+  const flies = Array.from({ length: FLY }, () => ({ x: fr(-20, 20), z: fr(16, 46), y: fr(0.2, 2.4), ph: fr(0, 6.28), rs: fr(0.5, 1.2) }));
+  let seasonNow = null, nightNow = 0;
+  const updateFlies = () => { flyCore.visible = flyHalo.visible = active && seasonNow === 'summer' && nightNow > 0.7; };
+
   return {
     seats, colliders,
+    setActive(on) { active = on; if (fallNow) fall[fallNow.kind].visible = on; updateFlies(); fxDirty = true; },
+    setSeason(k) {
+      seasonNow = k;
+      const winter = k === 'winter';
+      lawn.material.map = lawnTexFor(k);
+      trees.forEach((tr) => {
+        tr.crowns.forEach((c) => { c.visible = !winter; });
+        tr.bare.visible = winter;
+        if (!winter) tr.mat.color.set(CROWN[k][tr.index % 4]);
+        tr.mat.emissive.set(k === 'spring' ? 0x5a3040 : 0x000000);
+      });
+      water.ice.value = winter ? 1 : 0;
+      water.deep.value.set({ spring: 0x2d6a68, summer: 0x1f6a55, autumn: 0x3b5c55, winter: 0x7fa6ba }[k]);
+      pads.visible = !winter;
+      petals.visible = k === 'summer';
+      for (let i = 0; i < rimTones.length; i++) {
+        rims.setColorAt(i, winter ? col.setHSL(0.58, 0.14, 0.8 + (rimTones[i] - 0.48) * 0.6) : col.setHSL(0.09, 0.05, rimTones[i]));
+      }
+      rims.instanceColor.needsUpdate = true;
+      rockMats.forEach((m) => m.color.set(winter ? 0xdfe6ec : 0x8f8c84));
+      const snowy = new THREE.Color(0xeff4f7);
+      bambooBase.forEach((b, i) => bambooLeaf.setColorAt(i, col.copy(b).lerp(snowy, winter ? 0.62 : 0)));
+      bambooLeaf.instanceColor.needsUpdate = true;
+      // 떨어지는 것
+      Object.values(fall).forEach((m) => { m.visible = false; m.count = 0; });
+      fallNow = FALL[k];
+      const m = fall[fallNow.kind];
+      m.count = Math.round(MAXF * fallNow.n);
+      m.visible = active;
+      for (let i = 0; i < m.count; i++) m.setColorAt(i, col.set(fallNow.cols[i % fallNow.cols.length]));
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      fxDirty = true;
+      // 쌓인 것
+      const pile = { spring: [0xf9cfdb, 0xf5bccd, 0xfce1e8], autumn: [0xc8452d, 0xdb6a2b, 0xe6a02e, 0xb8382e, 0x9c6a2e] }[k];
+      litter.count = pile ? LITTER : 0;
+      litter.visible = !!pile;
+      if (pile) {
+        for (let i = 0; i < LITTER; i++) litter.setColorAt(i, col.set(pile[i % pile.length]));
+        litter.instanceColor.needsUpdate = true;
+      }
+      updateFlies();
+    },
+    fallInfo() {
+      return { season: seasonNow, kind: fallNow?.kind, count: fallNow ? fall[fallNow.kind].count : 0, visible: fallNow ? fall[fallNow.kind].visible : false, litter: litter.count, flies: flyCore.visible, sampleY: flakes[0].y, ice: water.ice.value, bare: trees[0].bare.visible };
+    },
     setStones(n) { for (let i = 0; i < Math.min(n, MAX_STONES); i++) writeStone(n - 1 - i, n); stoneMesh.count = Math.min(n, MAX_STONES); },
     placeStone(n) { drop = { i: n - 1, n, t: 0 }; writeStone(n - 1, n, 1.2); },
     stoneSite(n) { const k = Math.floor((n % MAX_STONES) / PER_TOWER); return TOWER_SITES[k]; },
     towerDone: (n) => n % PER_TOWER === 0,
     feed(x, z, now) { feed = { x, z, until: now + 13 }; water.ripple.value.set(x, z, now, 0); },
-    setSky(color, night) { water.sky.value.copy(color); lampGlow.forEach((m) => { m.emissiveIntensity = 0.25 + night * 1.5; }); },
+    setSky(color, night) { water.sky.value.copy(color); lampGlow.forEach((m) => { m.emissiveIntensity = 0.25 + night * 1.5; }); nightNow = night; updateFlies(); },
     update(t, dt) {
       water.time.value = t;
+      if (active && fallNow && (!still || fxDirty)) { writeFall(t, still ? 0 : dt); fxDirty = false; }
+      if (flyCore.visible) {
+        flies.forEach((f, i) => {
+          const glow = Math.max(0, Math.sin(t * 1.4 * f.rs + f.ph));
+          dummy.position.set(f.x + Math.sin(t * 0.3 * f.rs + f.ph) * 1.6, f.y + Math.sin(t * 0.5 + f.ph) * 0.35, f.z + Math.cos(t * 0.24 * f.rs + f.ph) * 1.6);
+          dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(0.25 + glow * 0.95); dummy.updateMatrix();
+          flyCore.setMatrixAt(i, dummy.matrix); flyHalo.setMatrixAt(i, dummy.matrix);
+        });
+        flyCore.instanceMatrix.needsUpdate = true; flyHalo.instanceMatrix.needsUpdate = true;
+      }
       if (drop) {
         drop.t += dt / 0.42;
         const k = Math.min(drop.t, 1), done = k >= 1;

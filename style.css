@@ -185,15 +185,15 @@ input[type=range] { width: 100%; height: 26px; margin: 0; accent-color: var(--ac
 }
 
 /* 법당 ↔ 정원 */
-#modeBtn {
+#modeBtn, .side-chip {
   position: fixed; z-index: 2; left: 12px; top: calc(env(safe-area-inset-top) + 62px);
   height: 40px; padding: 0 14px 0 11px; border-radius: 20px;
   display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700;
   animation: dropIn .7s var(--ease) both;
 }
-#modeBtn svg { width: 19px; height: 19px; color: var(--accent-secondary); }
-#modeBtn:hover { transform: translateY(-2px); background: rgba(255, 255, 255, .82); }
-#modeBtn:active { transform: scale(.97); }
+#modeBtn svg, .side-chip svg { width: 19px; height: 19px; color: var(--accent-secondary); }
+#modeBtn:hover, .side-chip:hover { transform: translateY(-2px); background: rgba(255, 255, 255, .82); }
+#modeBtn:active, .side-chip:active { transform: scale(.97); }
 #fade { position: fixed; inset: 0; z-index: 4; background: #f6f8ff; opacity: 0; pointer-events: none; transition: opacity .4s ease; }
 #fade.on { opacity: 1; pointer-events: auto; }
 
@@ -216,3 +216,7 @@ input[type=range] { width: 100%; height: 26px; margin: 0; accent-color: var(--ac
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; margin: 10px 0 8px; border-radius: 14px; background: var(--field-bg); border: 1px solid var(--field-border); }
 .seg button { min-height: 38px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--text-secondary); background: transparent; border: 0; }
 .seg button[aria-selected="true"] { background: #fff; color: var(--text-primary, inherit); box-shadow: 0 2px 8px rgba(15, 23, 42, .1); }
+
+#seasonBtn { top: calc(env(safe-area-inset-top) + 110px); }
+#skyBtn { top: calc(env(safe-area-inset-top) + 158px); }
+.side-chip svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
