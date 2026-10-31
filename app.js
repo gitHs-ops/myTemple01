@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
-import { Sound } from './sound.js?v=4';
+import { Sound } from './sound.js?v=5';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y } from './garden.js?v=1';
 
 const $ = (id) => document.getElementById(id);
@@ -17,7 +17,7 @@ const KEY = 'goyoam.v1';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 사생활 모드 등 */ } };
 const state = Object.assign(
-  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
+  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, chantTrack: 'yeombul', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
   (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })()
 );
 const rollDay = () => { if (state.day !== today()) { state.day = today(); state.bowsToday = 0; save(); updateHud(); } };
@@ -760,7 +760,7 @@ let tap = null, pinch = 0;
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitV = new THREE.Vector3();
 let entered = false;
-const modalOpen = () => !$('beadsModal').hidden || !$('settingsModal').hidden;
+const modalOpen = () => !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden;
 
 canvas.addEventListener('pointerdown', (e) => {
   if (!entered) return;
@@ -923,16 +923,59 @@ $('btnSit').onclick = () => {
   if (i == null) { toast('빈 방석이 없습니다'); return; }
   goToCushion(i);
 };
-function setChant(on, quiet) {
-  $('btnChant').setAttribute('aria-pressed', String(on));
-  sound.setChant(on).then(() => {
-    if (on && !quiet && sound.chantOn) toast('나무아미타불');
+const TRACKS = [
+  { id: 'yeombul', name: '나무아미타불', desc: '아미타불 정근' },
+  { id: 'gwaneum', name: '관세음보살', desc: '관음 정근' },
+  { id: 'seokga', name: '석가모니불', desc: '석가모니불 정근' },
+  { id: 'moktak', name: '목탁', desc: '말 없이 목탁 소리만' },
+  { id: 'bell', name: '범종', desc: '16초마다 울리는 큰 종' },
+];
+if (!TRACKS.some((x) => x.id === state.chantTrack)) state.chantTrack = 'yeombul';
+function drawTracks(loadingId = null) {
+  document.querySelectorAll('#trackList button').forEach((b) => {
+    const id = b.dataset.track || null, on = id === (sound.chantId || null);
+    b.setAttribute('aria-checked', String(on));
+    b.querySelector('.track-state').textContent = id && id === loadingId ? '불러오는 중…' : on && id ? '재생 중' : '';
+  });
+  $('btnChant').setAttribute('aria-pressed', String(!!sound.chantId));
+}
+function playTrack(id) {
+  if (id) { state.chantTrack = id; save(); }
+  const run = sound.playChant(id);
+  drawTracks(id);
+  return run.then(() => {
+    if (sound.chantId === id) drawTracks();
   }).catch(() => {
-    sound.chantOn = false; $('btnChant').setAttribute('aria-pressed', 'false');
-    toast('염불 음원을 불러오지 못했습니다. 다시 눌러 주세요');
+    if (sound.chantId !== id) return;
+    sound.chantId = null; sound.chantOn = false;
+    drawTracks();
+    toast('음원을 불러오지 못했습니다. 다시 눌러 주세요');
   });
 }
-$('btnChant').onclick = () => { chantUntil = 0; setChant(!sound.chantOn); };
+function setChant(on) { return playTrack(on ? state.chantTrack : null); }
+{
+  const list = $('trackList');
+  const add = (id, name, desc) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.setAttribute('role', 'radio');
+    if (id) b.dataset.track = id;
+    const t = document.createElement('span'); t.className = 'track-text';
+    const n = document.createElement('b'); n.textContent = name;
+    const d = document.createElement('small'); d.textContent = desc;
+    t.append(n, d);
+    const st = document.createElement('span'); st.className = 'track-state';
+    b.append(t, st);
+    b.onclick = () => { chantUntil = 0; playTrack(id); };
+    list.append(b);
+  };
+  TRACKS.forEach((x) => add(x.id, x.name, x.desc));
+  add(null, '끄기', '조용히 머뭅니다');
+}
+$('btnChant').onclick = () => { drawTracks(); $('volChant2').value = state.vol.chant; openModal('chantModal'); };
+$('volChant2').oninput = () => {
+  state.vol.chant = +$('volChant2').value; $('volChant').value = state.vol.chant;
+  sound.applyVolumes(); save();
+};
 $('btnBeads').onclick = () => openModal('beadsModal');
 
 /* 정원 행동 */
@@ -1010,7 +1053,7 @@ function openModal(id) {
   $(id).querySelector('.modal-x').focus();
 }
 function closeModals() {
-  ['beadsModal', 'settingsModal'].forEach((id) => { $(id).hidden = true; });
+  ['beadsModal', 'settingsModal', 'chantModal'].forEach((id) => { $(id).hidden = true; });
   lastFocus?.focus?.(); lastFocus = null;
 }
 document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = closeModals; });
@@ -1083,7 +1126,7 @@ function yebulTick() {
     lastYebul = id;
     toast(h === 6 ? '아침 예불이 시작됩니다' : '저녁 예불이 시작됩니다', 6000);
     sound.bell(); setTimeout(() => sound.bell(), 7000); setTimeout(() => sound.bell(), 14000);
-    if (!sound.chantOn) { setChant(true, true); chantUntil = Date.now() + 600000; }
+    if (!sound.chantOn) { setChant(true); chantUntil = Date.now() + 600000; }
     npcs.forEach((n) => { if (n.cushion != null) n.nextAct = performance.now() / 1000 + rand(0, 8); });
   }
   if (chantUntil && Date.now() > chantUntil) { chantUntil = 0; setChant(false); }

@@ -196,3 +196,19 @@ input[type=range] { width: 100%; height: 26px; margin: 0; accent-color: var(--ac
 #modeBtn:active { transform: scale(.97); }
 #fade { position: fixed; inset: 0; z-index: 4; background: #f6f8ff; opacity: 0; pointer-events: none; transition: opacity .4s ease; }
 #fade.on { opacity: 1; pointer-events: auto; }
+
+/* 염불 고르기 */
+#trackList { display: grid; gap: 6px; margin-top: 4px; }
+#trackList button {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px;
+  padding: 8px 14px; text-align: left; border-radius: 14px;
+  background: var(--field-bg); border: 1px solid var(--field-border);
+  animation: rise .4s var(--ease) both;
+}
+#trackList button:hover { background: #fff; transform: translateY(-1px); }
+#trackList button[aria-checked="true"] { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; box-shadow: 0 8px 20px rgba(99, 102, 241, .32); }
+.track-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.track-text b { font-size: 15px; font-weight: 700; }
+.track-text small { font-size: 12px; color: var(--text-secondary); }
+#trackList button[aria-checked="true"] small { color: rgba(255, 255, 255, .82); }
+.track-state { flex: none; font-size: 12px; font-weight: 600; }

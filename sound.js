@@ -1,5 +1,5 @@
 // 바람·풍경·목탁·종은 실시간 합성, 염불은 tools/render_yeombul.py로 렌더링한 음원을 반복 재생한다.
-const CHANT_URL = 'audio/yeombul.mp3?v=2';
+const chantUrl = (id) => `audio/${id}.mp3?v=3`;
 const CHANT_PAD = 0.25;   // 렌더러의 PAD와 같아야 한다
 const CHANT_LOOP = 64;    // 렌더러의 LOOP와 같아야 한다
 
@@ -117,95 +117,42 @@ export class Sound {
     this.tone(70, t, 0.25, 0.25 * level, this.buses.perc);
   }
 
-  loadChant() {
-    this.chantBuf ??= fetch(CHANT_URL)
+  loadChant(id) {
+    this.chantBufs ??= {};
+    this.chantBufs[id] ??= fetch(chantUrl(id))
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
       .then((b) => this.ctx.decodeAudioData(b))
-      .catch((e) => { this.chantBuf = null; throw e; });
-    return this.chantBuf;
+      .catch((e) => { delete this.chantBufs[id]; throw e; });
+    return this.chantBufs[id];
   }
 
-  setGarden(on) {
-    this.gardenOn = on;
-    if (!this.ctx) return;
-    if (!this.waterGain) this.startWater();
-    this.waterGain.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.6);
-  }
-
-  startWater() {
-    const { ctx } = this, n = ctx.sampleRate * 4, buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
-    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
-    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 0.55;
-    const lfo = ctx.createOscillator(), amt = ctx.createGain(); lfo.frequency.value = 0.31; amt.gain.value = 500;
-    lfo.connect(amt); amt.connect(bp.frequency); lfo.start();
-    const lvl = ctx.createGain(); lvl.gain.value = 0.055;
-    this.waterGain = ctx.createGain(); this.waterGain.gain.value = 0;
-    src.connect(bp); bp.connect(lvl); lvl.connect(this.waterGain); this.waterGain.connect(this.buses.wind);
-    src.start();
-    const trickle = () => {
-      if (this.gardenOn) {
-        const t = ctx.currentTime, f = 480 + Math.random() * 900, o = ctx.createOscillator(), g = ctx.createGain();
-        o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.5, t + 0.07);
-        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.022, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
-        o.connect(g); g.connect(this.waterGain); o.start(t); o.stop(t + 0.1);
-      }
-      setTimeout(trickle, 70 + Math.random() * 620);
-    };
-    trickle();
-    const bird = () => {
-      const h = new Date().getHours();
-      if (this.gardenOn && h >= 5 && h < 19) {
-        const base = 2500 + Math.random() * 1300, count = 2 + Math.floor(Math.random() * 4);
-        for (let i = 0; i < count; i++) {
-          const t = ctx.currentTime + i * (0.13 + Math.random() * 0.05), o = ctx.createOscillator(), g = ctx.createGain();
-          o.frequency.setValueAtTime(base, t); o.frequency.exponentialRampToValueAtTime(base * (1.14 + Math.random() * 0.18), t + 0.075);
-          g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.014, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
-          o.connect(g); g.connect(this.waterGain); o.start(t); o.stop(t + 0.12);
-        }
-      }
-      setTimeout(bird, 7000 + Math.random() * 19000);
-    };
-    setTimeout(bird, 3000);
-  }
-
-  stone() {
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime;
-    this.tone(1900, t, 0.05, 0.13, this.buses.perc);
-    this.tone(760, t, 0.08, 0.1, this.buses.perc);
-  }
-
-  plop() {
-    if (!this.ctx) return;
-    const { ctx } = this, t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
-    o.frequency.setValueAtTime(320, t); o.frequency.exponentialRampToValueAtTime(820, t + 0.13);
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.13, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-    o.connect(g); g.connect(this.buses.perc); o.start(t); o.stop(t + 0.22);
-  }
-
-  async setChant(on) {
-    this.chantOn = on;
+  // id를 null로 주면 멈춘다. 곡을 바꾸면 앞 곡은 서서히 줄어든다
+  async playChant(id) {
+    const token = (this.chantToken = (this.chantToken || 0) + 1);
+    this.chantId = id;
+    this.chantOn = !!id;
     if (!this.ctx) return;
     this.ctx.resume();
-    const t = this.ctx.currentTime;
-    this.chantGate.gain.cancelScheduledValues(t);
-    if (!on) {
-      this.chantGate.gain.setTargetAtTime(0, t, 0.35);
-      const src = this.chantSrc; this.chantSrc = null;
-      src?.stop(t + 2);
-      return;
+    const fadeOut = this.chantSrc, fadeGain = this.chantSrcGain;
+    this.chantSrc = null; this.chantSrcGain = null;
+    if (fadeOut) {
+      const t = this.ctx.currentTime;
+      fadeGain.gain.cancelScheduledValues(t);
+      fadeGain.gain.setTargetAtTime(0, t, 0.35);
+      fadeOut.stop(t + 2);
     }
-    const buf = await this.loadChant();
-    if (!this.chantOn || this.chantSrc) return;
-    const src = this.ctx.createBufferSource();
+    if (!id) return;
+    this.chantGate.gain.value = 1;
+    const buf = await this.loadChant(id);
+    if (token !== this.chantToken) return;
+    const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
     src.buffer = buf; src.loop = true;
     src.loopStart = CHANT_PAD; src.loopEnd = CHANT_PAD + CHANT_LOOP;
-    src.connect(this.chantGate);
+    g.gain.value = 0;
+    src.connect(g); g.connect(this.chantGate);
     const now = this.ctx.currentTime;
     src.start(now, CHANT_PAD);
-    this.chantGate.gain.cancelScheduledValues(now);
-    this.chantGate.gain.setTargetAtTime(1, now, 0.4);
-    this.chantSrc = src;
+    g.gain.setTargetAtTime(1, now, 0.4);
+    this.chantSrc = src; this.chantSrcGain = g;
   }
 }
