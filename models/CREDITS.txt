@@ -3,3 +3,9 @@ buddha.glb
 라이선스: CC0 1.0
 https://sketchfab.com/3d-models/chinese-amoghasiddhi-buddha-1403-1424-ce-33699be99fd64375bf0371c0e0c12f70
 가공: 면 수 축소, 금칠 질감으로 다시 구움 (tools/build_buddha.mjs)
+
+cat.glb
+원본: Cat(Nana), Yu (https://sketchfab.com/FFT_kedar)
+라이선스: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+https://sketchfab.com/3d-models/catnana-eceaf20563ce4ab1908119a04a79f3be
+가공: 바닥 자갈을 잘라내고 면 수를 줄임 (tools/build_cat.mjs)

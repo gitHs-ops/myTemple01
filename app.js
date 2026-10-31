@@ -1,7 +1,7 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=8';
-import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y } from './garden.js?v=2';
+import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=3';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -563,6 +563,33 @@ garden.seats.forEach((q) => {
 });
 garden.setStones(state.stones);
 let mode = 'temple';
+
+/* ───────── 고양이 ───────── */
+// 실제 고양이 3D 스캔. 몸통의 높은 부분만 위아래로 움직여 숨 쉬게 한다
+const catBreath = { value: 0 };
+let catModel = null;
+new GLTFLoader().load('models/cat.glb', (gltf) => {
+  const cat = gltf.scene;
+  cat.position.set(CAT.x, GROUND_Y + 0.016, CAT.z); cat.rotation.y = CAT.yaw; cat.scale.setScalar(CAT.len);
+  cat.traverse((m) => {
+    if (!m.isMesh) return;
+    m.material.color.setScalar(0.92);
+    m.material.onBeforeCompile = (shader) => {
+      shader.uniforms.uBreath = catBreath;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uBreath;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed.y += uBreath * smoothstep(0.035, 0.11, position.y);');
+    };
+  });
+  scene.add(cat); catModel = cat;
+  const shadowTex = canvasTex(128, 128, (g, w) => {
+    const r = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+    r.addColorStop(0, 'rgba(0,0,0,.5)'); r.addColorStop(0.55, 'rgba(0,0,0,.3)'); r.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = r; g.fillRect(0, 0, w, w);
+  });
+  const blob = mesh(new THREE.PlaneGeometry(0.72 * CAT.len, 1.14 * CAT.len), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, toneMapped: false }), CAT.x, GROUND_Y + 0.026, CAT.z, scene);
+  blob.rotation.set(-Math.PI / 2, 0, CAT.yaw);
+}, undefined, () => { /* 고양이 없이 진행 */ });
 
 /* ───────── 계절 ───────── */
 const SEASONS = {
@@ -1331,8 +1358,8 @@ function updateCamera(dt) {
     const ox = orbit.dist * sinP * Math.sin(orbit.theta), oz = orbit.dist * sinP * Math.cos(orbit.theta);
     scan: for (let k = 3; k <= 12; k++) {
       const s = k / 12, px = camTarget.x + ox * s, pz = camTarget.z + oz * s;
-      for (const [cx, cz, R] of OBSTACLES) {
-        if (Math.hypot(px - cx, pz - cz) < R + 0.3) { fit = Math.max(0.3, (k - 1) / 12); break scan; }
+      for (const [cx, cz, R, low] of OBSTACLES) {
+        if (!low && Math.hypot(px - cx, pz - cz) < R + 0.3) { fit = Math.max(0.3, (k - 1) / 12); break scan; }
       }
     }
   }
@@ -1363,6 +1390,7 @@ function frame(now) {
   strollerTick(t);
   garden.update(t, dt);
   starUni.time.value = t; starUni.ratio.value = pixelRatio;
+  if (!reduceMotion) catBreath.value = 0.007 * (0.5 + 0.5 * Math.sin(t * 2));
   if (skyGoal) {
     orbit.phi = damp(orbit.phi, skyGoal.phi, 2.4, dt); orbit.dist = damp(orbit.dist, skyGoal.dist, 2.4, dt);
     if (Math.abs(orbit.phi - skyGoal.phi) < 0.004 && Math.abs(orbit.dist - skyGoal.dist) < 0.02) skyGoal = null;
@@ -1436,4 +1464,4 @@ $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, milky: milkyUni, garden, strollers, npcs, cushions, sound };
+window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
