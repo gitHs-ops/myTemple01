@@ -517,9 +517,10 @@ function makeMonk(name, mine = false) {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
   const blob = mesh(G.blob, M.blob, 0, 0.012, 0, root); blob.rotation.x = -Math.PI / 2;
   const robeMat = mine ? M.robes[0] : pick(M.robes);
-  mesh(G.robe, robeMat, 0, 0, 0, body);
-  const sash = mesh(G.sash, M.sash, 0, 0.52, 0, body); sash.rotation.x = Math.PI / 2 - 0.16; sash.rotation.y = 0.5; sash.scale.set(1.02, 1, 0.5);
-  const head = new THREE.Group(); head.position.y = 1.15; body.add(head);
+  const robe = mesh(G.robe, robeMat, 0, 0, 0, body);
+  const upper = new THREE.Group(); body.add(upper);
+  const sash = mesh(G.sash, M.sash, 0, 0.52, 0, upper); sash.rotation.x = Math.PI / 2 - 0.16; sash.rotation.y = 0.5; sash.scale.set(1.02, 1, 0.5);
+  const head = new THREE.Group(); head.position.y = 1.15; upper.add(head);
   mesh(G.head, M.skin, 0, 0, 0, head);
   const crown = mesh(new THREE.SphereGeometry(0.436, 24, 12, 0, Math.PI * 2, 0, 1.05), M.crown, 0, 0.01, -0.012, head); crown.rotation.x = -0.28;
   [-1, 1].forEach((s) => {
@@ -529,7 +530,7 @@ function makeMonk(name, mine = false) {
   });
   const m = mesh(G.mouth, M.mouth, 0, -0.14, 0.405, head); m.rotation.z = Math.PI + 0.25;
   const arms = [-1, 1].map((s) => {
-    const a = new THREE.Group(); a.position.set(s * 0.25, 0.74, 0.02); body.add(a);
+    const a = new THREE.Group(); a.position.set(s * 0.25, 0.74, 0.02); upper.add(a);
     mesh(G.arm, robeMat, 0, -0.17, 0, a); mesh(G.hand, M.skin, 0, -0.39, 0, a);
     return { a, s };
   });
@@ -537,7 +538,7 @@ function makeMonk(name, mine = false) {
   const label = nameSprite(name, mine); root.add(label);
   scene.add(root);
   return {
-    name, root, body, head, arms, feet, mine, label,
+    name, root, body, robe, upper, head, arms, feet, mine, label,
     x: 0, z: 0, yaw: Math.PI, yawTo: Math.PI, target: null, cushion: null, leaving: false,
     sit: 0, sitTo: 0, hap: 0, hapTo: 0, hapUntil: 0, bowT: null, phase: Math.random() * 6, walk: 0, stuck: 0, pop: 1, onArrive: null,
   };
@@ -615,7 +616,12 @@ function updateMonk(c, dt, t) {
     c.label.material.opacity = smooth(3, 4.5, d) * (1 - smooth(8, 11, d));
     c.label.visible = c.label.material.opacity > 0.01;
   }
-  c.body.position.y = -0.2 * low + Math.sin(t * 1.4 + c.phase) * 0.006;
+  // 서면 옷자락이 길어져 키가 커지고, 앉으면 낮게 접힌다
+  const tall = 1.55 + (0.72 - 1.55) * low, lift = 0.74 * (tall - 1);
+  c.robe.scale.y = tall; c.robe.position.y = 0.12 * (1 - tall);
+  c.upper.position.y = lift;
+  c.body.position.y = -0.2 * low + 0.22 * down + Math.sin(t * 1.4 + c.phase) * 0.006;
+  c.label.position.y = c.body.position.y + 1.87 + lift;
   c.body.scale.set(1 + 0.1 * low, 1 - 0.05 * low, 1 + 0.1 * low);
   c.body.rotation.x = 1.32 * down;
   c.body.rotation.z = Math.sin(c.phase) * 0.05 * c.walk;
@@ -701,7 +707,7 @@ function communityTick(t) {
 
 /* ───────── 입력 ───────── */
 const orbit = { theta: 0, phi: 1.22, dist: 8.2 };
-const camTarget = new THREE.Vector3(0, 1, 7);
+const camTarget = new THREE.Vector3(0, 1.15, 7);
 const pointers = new Map();
 let tap = null, pinch = 0;
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
@@ -966,7 +972,7 @@ addEventListener('resize', resize); resize();
 
 const camPos = new THREE.Vector3();
 function updateCamera(dt, snap) {
-  if (player) camTarget.set(snap ? player.x : damp(camTarget.x, player.x, 5, dt), 0.95, snap ? player.z : damp(camTarget.z, player.z, 5, dt));
+  if (player) camTarget.set(snap ? player.x : damp(camTarget.x, player.x, 5, dt), 1.15, snap ? player.z : damp(camTarget.z, player.z, 5, dt));
   const sinP = Math.sin(orbit.phi);
   camPos.set(
     camTarget.x + orbit.dist * sinP * Math.sin(orbit.theta),
