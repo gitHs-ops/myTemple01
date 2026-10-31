@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
-import { Sound } from './sound.js?v=6';
+import { Sound } from './sound.js?v=7';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y } from './garden.js?v=1';
 
 const $ = (id) => document.getElementById(id);
@@ -17,7 +17,7 @@ const KEY = 'goyoam.v1';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 사생활 모드 등 */ } };
 const state = Object.assign(
-  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, chantTrack: 'yeombul', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
+  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
   (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })()
 );
 const rollDay = () => { if (state.day !== today()) { state.day = today(); state.bowsToday = 0; save(); updateHud(); } };
@@ -931,14 +931,28 @@ const TRACKS = [
   { id: 'bell', name: '범종', desc: '16초마다 울리는 큰 종' },
 ];
 if (!TRACKS.some((x) => x.id === state.chantTrack)) state.chantTrack = 'yeombul';
-function drawTracks(loadingId = null) {
-  document.querySelectorAll('#trackList button').forEach((b) => {
-    const id = b.dataset.track || null, on = id === (sound.chantId || null);
+const AMBIENTS = [
+  { id: 'wind', name: '산바람과 풍경', desc: '바람 사이로 풍경이 가끔 울립니다' },
+  { id: 'stream', name: '계곡물', desc: '바위 사이로 흐르는 물소리' },
+  { id: 'rain', name: '빗소리', desc: '처마 끝에 내리는 비' },
+  { id: 'forest', name: '새 우는 숲', desc: '멀리서 들리는 새소리' },
+  { id: 'night', name: '풀벌레 밤', desc: '여름밤 풀벌레 소리' },
+  { id: 'off', name: '끄기', desc: '바람과 물소리를 끕니다' },
+];
+if (!AMBIENTS.some((x) => x.id === state.ambient)) state.ambient = 'wind';
+sound.ambId = state.ambient;
+function markList(listId, currentId, stateOf) {
+  document.querySelectorAll(`#${listId} button`).forEach((b) => {
+    const id = b.dataset.track || null, on = id === currentId;
     b.setAttribute('aria-checked', String(on));
-    b.querySelector('.track-state').textContent = id && id === loadingId ? '불러오는 중…' : on && id ? '재생 중' : '';
+    b.querySelector('.track-state').textContent = stateOf(id, on);
   });
+}
+function drawTracks(loadingId = null) {
+  markList('trackList', sound.chantId || null, (id, on) => (id && id === loadingId ? '불러오는 중…' : on && id ? '재생 중' : ''));
   $('btnChant').setAttribute('aria-pressed', String(!!sound.chantId));
 }
+const drawAmbients = () => markList('ambList', state.ambient, (id, on) => (on && id !== 'off' ? '재생 중' : ''));
 function playTrack(id) {
   if (id) { state.chantTrack = id; save(); }
   const run = sound.playChant(id);
@@ -953,9 +967,9 @@ function playTrack(id) {
   });
 }
 function setChant(on) { return playTrack(on ? state.chantTrack : null); }
-{
-  const list = $('trackList');
-  const add = (id, name, desc) => {
+function fillList(listId, items, onPick) {
+  const list = $(listId);
+  for (const { id, name, desc } of items) {
     const b = document.createElement('button');
     b.type = 'button'; b.setAttribute('role', 'radio');
     if (id) b.dataset.track = id;
@@ -965,17 +979,29 @@ function setChant(on) { return playTrack(on ? state.chantTrack : null); }
     t.append(n, d);
     const st = document.createElement('span'); st.className = 'track-state';
     b.append(t, st);
-    b.onclick = () => { chantUntil = 0; playTrack(id); };
+    b.onclick = () => onPick(id);
     list.append(b);
-  };
-  TRACKS.forEach((x) => add(x.id, x.name, x.desc));
-  add(null, '끄기', '조용히 머뭅니다');
+  }
 }
-$('btnChant').onclick = () => { drawTracks(); $('volChant2').value = state.vol.chant; openModal('chantModal'); };
-$('volChant2').oninput = () => {
-  state.vol.chant = +$('volChant2').value; $('volChant').value = state.vol.chant;
-  sound.applyVolumes(); save();
+fillList('trackList', [...TRACKS, { id: null, name: '끄기', desc: '조용히 머뭅니다' }], (id) => { chantUntil = 0; playTrack(id); });
+fillList('ambList', AMBIENTS, (id) => { state.ambient = id; save(); sound.setAmbient(id); drawAmbients(); });
+function soundTab(which) {
+  const amb = which === 'amb';
+  $('tabChant').setAttribute('aria-selected', String(!amb));
+  $('tabAmb').setAttribute('aria-selected', String(amb));
+  $('panelChant').hidden = amb;
+  $('panelAmb').hidden = !amb;
+}
+$('tabChant').onclick = () => soundTab('chant');
+$('tabAmb').onclick = () => soundTab('amb');
+$('btnChant').onclick = () => {
+  drawTracks(); drawAmbients(); soundTab('chant');
+  $('volChant2').value = state.vol.chant; $('volWind2').value = state.vol.wind;
+  openModal('chantModal');
 };
+[['volChant2', 'volChant', 'chant'], ['volWind2', 'volWind', 'wind']].forEach(([id, other, k]) => {
+  $(id).oninput = () => { state.vol[k] = +$(id).value; $(other).value = state.vol[k]; sound.applyVolumes(); save(); };
+});
 $('btnBeads').onclick = () => openModal('beadsModal');
 
 /* 정원 행동 */
