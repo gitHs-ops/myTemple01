@@ -1,0 +1,5 @@
+buddha.glb
+원본: Chinese Amoghasiddhi Buddha, 1403-1424 CE, Minneapolis Institute of Art
+라이선스: CC0 1.0
+https://sketchfab.com/3d-models/chinese-amoghasiddhi-buddha-1403-1424-ce-33699be99fd64375bf0371c0e0c12f70
+가공: 면 수 축소, 금칠 질감으로 다시 구움 (tools/build_buddha.mjs)

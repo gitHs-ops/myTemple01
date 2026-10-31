@@ -1,4 +1,5 @@
 import * as THREE from './vendor/three.min.js';
+import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=2';
 
 const $ = (id) => document.getElementById(id);
@@ -62,7 +63,7 @@ const box = (w, h, d, mat, x, y, z, parent = scene) => mesh(new THREE.BoxGeometr
 /* ───────── 조명·하늘 ───────── */
 const hemi = new THREE.HemisphereLight(0xffffff, 0x8a7a68, 1.5); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0dd, 1.5); sun.position.set(10, 26, 30); scene.add(sun);
-const buddhaLight = new THREE.SpotLight(0xfff0d8, 42, 22, 0.34, 0.8, 1.3);
+const buddhaLight = new THREE.SpotLight(0xfff0d8, 24, 22, 0.34, 0.8, 1.3);
 buddhaLight.position.set(0, 6.6, 2.5); buddhaLight.target.position.set(0, 3.6, -6.8); scene.add(buddhaLight, buddhaLight.target);
 const candles = [-1.15, 1.15].map((x) => {
   const l = new THREE.PointLight(0xffb066, 14, 13, 1.5); l.position.set(x, 1.7, -4.7); scene.add(l); return l;
@@ -331,8 +332,10 @@ const altarRed = std(0x7d2a22, { roughness: 0.55 }), trim = std(0xc69a3f, { meta
 box(7.6, 1.1, 2.9, altarRed, 0, 0.55, -6.65);
 box(7.8, 0.1, 3.05, trim, 0, 1.12, -6.65);
 box(7.8, 0.1, 3.05, trim, 0, 0.05, -6.65);
+const procBuddha = new THREE.Group(); procBuddha.position.set(0, 1.17, -6.7); scene.add(procBuddha);
+let halo = null;
 {
-  const b = new THREE.Group(); b.position.set(0, 1.17, -6.7); scene.add(b);
+  const b = procBuddha;
   const lathe = (pts, y = 0) => mesh(new THREE.LatheGeometry(pts.map(([r, h]) => new THREE.Vector2(r, h)), 32), gold, 0, y, 0, b);
   lathe([[0, 0], [1.75, 0], [1.85, 0.16], [1.6, 0.34], [1.35, 0.42], [0, 0.42]]);
   const petal = new THREE.SphereGeometry(0.34, 12, 8);
@@ -373,9 +376,51 @@ box(7.8, 0.1, 3.05, trim, 0, 0.05, -6.65);
     g.strokeStyle = 'rgba(160,80,30,.6)'; g.lineWidth = 4;
     [110, 150, 190].forEach((r) => { g.beginPath(); g.arc(c, c, r, 0, 7); g.stroke(); });
   });
-  const halo = mesh(new THREE.PlaneGeometry(3.2, 3.2), new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, depthWrite: false, toneMapped: false }), 0, hy + 0.05, -0.9, b);
+  halo = mesh(new THREE.PlaneGeometry(3.2, 3.2), new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, depthWrite: false, toneMapped: false }), 0, hy + 0.05, -0.9, b);
   halo.renderOrder = -1;
 }
+// 실물 스캔 불상. 받지 못하면 위의 조립형 불상을 그대로 둔다.
+const BUDDHA = { height: 4.35, yaw: 0 };
+let scanBuddha = null;
+function makeTempleEnv() {
+  const env = new THREE.Scene();
+  const tex = canvasTex(256, 128, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h);
+    gr.addColorStop(0, '#fff3d6'); gr.addColorStop(0.42, '#c98c4a'); gr.addColorStop(0.62, '#6d3322'); gr.addColorStop(1, '#2c170e');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#fff6df';
+    for (let i = 0; i < 7; i++) g.fillRect(i * 38 + 6, 24, 18, 10);
+    g.fillStyle = '#ffd9a0'; g.fillRect(w * 0.42, 46, w * 0.16, 16);
+  });
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  env.background = tex;
+  const pm = new THREE.PMREMGenerator(renderer);
+  const rt = pm.fromScene(env, 0.03);
+  pm.dispose(); tex.dispose();
+  return rt.texture;
+}
+new GLTFLoader().load('models/buddha.glb', (gltf) => {
+  const model = gltf.scene, envMap = makeTempleEnv();
+  model.rotation.y = BUDDHA.yaw;
+  model.updateMatrixWorld(true);
+  const bb = new THREE.Box3().setFromObject(model), size = bb.getSize(new THREE.Vector3()), c = bb.getCenter(new THREE.Vector3());
+  const k = BUDDHA.height / size.y;
+  const holder = new THREE.Group();
+  holder.scale.setScalar(k);
+  holder.position.set(0, 1.17, -6.7);
+  model.position.set(-c.x, -bb.min.y, -c.z);
+  holder.add(model); scene.add(holder);
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    o.material.envMap = envMap; o.material.envMapIntensity = 0.95;
+    
+  });
+  const keep = halo; procBuddha.remove(keep);
+  procBuddha.visible = false;
+  keep.position.set(0, 1.17 + BUDDHA.height * 0.78, -7.75); keep.scale.setScalar(1.25);
+  scene.add(keep);
+  scanBuddha = { holder, size: size.toArray(), k };
+}, undefined, () => { /* 조립형 불상 유지 */ });
 // 예불상·촛대·향로·연꽃
 box(4.2, 0.1, 1, altarRed, 0, 0.85, -4.75); box(4.3, 0.04, 1.08, trim, 0, 0.92, -4.75);
 [-1.7, 1.7].forEach((x) => box(0.12, 0.82, 0.8, altarRed, x, 0.41, -4.75));
@@ -929,7 +974,7 @@ function updateCamera(dt, snap) {
     camTarget.z + orbit.dist * sinP * Math.cos(orbit.theta)
   );
   camera.position.copy(camPos);
-  camera.lookAt(camTarget.x, camTarget.y + 0.25, camTarget.z);
+  camera.lookAt(camTarget.x, camTarget.y + 0.75, camTarget.z);
 }
 
 const dummy = new THREE.Object3D();
@@ -1010,4 +1055,4 @@ $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get player() { return player; }, npcs, cushions, sound };
+window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, npcs, cushions, sound };
