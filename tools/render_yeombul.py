@@ -17,6 +17,7 @@ SR = 22050          # 음성 내부 렌더링
 OUT_SR = 44100
 PULSE = 0.8         # 맥당 0.8초 = 분당 75맥
 LINE_PULSES = 10    # 음절 + 끝 음절 늘임 + 쉼
+MOKTAK_GAP = 4.0    # 목탁 간격(초)
 PAD = 0.25          # MP3 앞뒤 인코더 여백을 흡수할 순환 여분(초). sound.js와 맞출 것
 FRAME = 0.005
 NOTE = {'E': 82.41, 'G': 98.0, 'A': 110.0, 'C': 130.81, 'D': 146.83}
@@ -211,11 +212,9 @@ def chant(name, path):
         v = voice(line_t, syls, det, fk, jit, rate, depth, breath=0.07, rasp=0.008)
         L += v * gain * np.cos(pan * np.pi / 2)
         R += v * gain * np.sin(pan * np.pi / 2)
-    # 목탁은 멀리서 들리듯 낮고 둥글게, 두 맥에 한 번
+    # 목탁은 멀리서 들리듯 낮고 둥글게, 4초(다섯 맥)에 한 번
     per_l, per_r = np.zeros(N_), np.zeros(N_)
-    for p in range(1, len(order) * LINE_PULSES, 2):
-        if (p - 1) % LINE_PULSES >= 8:
-            continue
+    for p in range(1, len(order) * LINE_PULSES, 5):
         m = MOKTAK()
         strike(per_l, p * PULSE, m, 0.13)
         strike(per_r, p * PULSE, m, 0.13)
@@ -237,19 +236,11 @@ def chant(name, path):
 def moktak(path):
     N_ = int(LOOP * OUT_SR)
     l, r = np.zeros(N_), np.zeros(N_)
-    pulses = int(LOOP / PULSE)
-    for p in range(pulses - 2):
-        lv = 0.3 if p % 2 == 0 else 0.22
+    # 4초에 한 번, 아주 느리게. 이음매가 울림 사이에 오도록 2초 뒤부터 친다
+    for k, at in enumerate(np.arange(2.0, LOOP, MOKTAK_GAP)):
+        lv = 0.3 if k % 2 == 0 else 0.24
         m = MOKTAK()
-        strike(l, p * PULSE, m, lv * 0.97)
-        strike(r, p * PULSE, m, lv)
-    # 끝에서 천천히 잦아드는 내림 목탁
-    steps = np.cumsum([0.55, 0.42, 0.32, 0.25, 0.2, 0.16, 0.13])
-    for k, d in enumerate(steps):
-        at = LOOP - 2 * PULSE + d
-        lv = 0.28 - 0.024 * k
-        m = MOKTAK()
-        strike(l, at, m, lv)
+        strike(l, at, m, lv * 0.97)
         strike(r, at, m, lv)
     irl, irr = impulse(2.8, 31), impulse(2.8, 32)
     st = np.stack([l * 0.7 + circular(l, irl) * 0.42, r * 0.7 + circular(r, irr) * 0.42], 1)

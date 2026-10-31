@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
-import { Sound } from './sound.js?v=7';
+import { Sound } from './sound.js?v=8';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y } from './garden.js?v=1';
 
 const $ = (id) => document.getElementById(id);

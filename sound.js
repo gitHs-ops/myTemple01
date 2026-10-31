@@ -1,5 +1,5 @@
 // 바람·풍경·목탁·종은 실시간 합성, 염불은 tools/render_yeombul.py로 렌더링한 음원을 반복 재생한다.
-const chantUrl = (id) => `audio/${id}.mp3?v=3`;
+const chantUrl = (id) => `audio/${id}.mp3?v=4`;
 const CHANT_PAD = 0.25;   // 렌더러의 PAD와 같아야 한다
 const CHANT_LOOP = 64;    // 렌더러의 LOOP와 같아야 한다
 const AMB_LEVEL = { wind: 1, stream: 10, rain: 5.6, forest: 8, night: 10 };   // 장면 사이 크기 맞춤
