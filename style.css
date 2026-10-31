@@ -183,3 +183,16 @@ input[type=range] { width: 100%; height: 26px; margin: 0; accent-color: var(--ac
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition-duration: .01ms !important; }
 }
+
+/* 법당 ↔ 정원 */
+#modeBtn {
+  position: fixed; z-index: 2; left: 12px; top: calc(env(safe-area-inset-top) + 62px);
+  height: 40px; padding: 0 14px 0 11px; border-radius: 20px;
+  display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700;
+  animation: dropIn .7s var(--ease) both;
+}
+#modeBtn svg { width: 19px; height: 19px; color: var(--accent-secondary); }
+#modeBtn:hover { transform: translateY(-2px); background: rgba(255, 255, 255, .82); }
+#modeBtn:active { transform: scale(.97); }
+#fade { position: fixed; inset: 0; z-index: 4; background: #f6f8ff; opacity: 0; pointer-events: none; transition: opacity .4s ease; }
+#fade.on { opacity: 1; pointer-events: auto; }

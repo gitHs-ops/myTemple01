@@ -1,6 +1,7 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
-import { Sound } from './sound.js?v=3';
+import { Sound } from './sound.js?v=4';
+import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y } from './garden.js?v=1';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -16,7 +17,7 @@ const KEY = 'goyoam.v1';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 사생활 모드 등 */ } };
 const state = Object.assign(
-  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
+  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
   (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })()
 );
 const rollDay = () => { if (state.day !== today()) { state.day = today(); state.bowsToday = 0; save(); updateHud(); } };
@@ -100,7 +101,7 @@ const SKY = [
   { h: 21, top: '#0e1736', bot: '#25335c', fog: '#1f2b4c', hemi: 0.78, sun: 0.15, sunC: '#8fa6ff', glow: 1 },
   { h: 24, top: '#0b1430', bot: '#1f2c52', fog: '#1b2746', hemi: 0.75, sun: 0.15, sunC: '#8fa6ff', glow: 1 },
 ];
-let lanternGlow = 0;
+let lanternGlow = 0, gardenSky = null;
 const lanternMats = [];
 const cA = new THREE.Color(), cB = new THREE.Color();
 const mixHex = (a, b, t, out) => out.copy(cA.set(a)).lerp(cB.set(b), t);
@@ -120,6 +121,7 @@ function applyTime() {
   lanternGlow = THREE.MathUtils.lerp(a.glow, b.glow, t);
   stars.material.opacity = lanternGlow > 0.7 ? (lanternGlow - 0.7) / 0.3 : 0;
   lanternMats.forEach((m) => { m.emissiveIntensity = 0.28 + lanternGlow * 0.95; });
+  gardenSky?.(skyUniforms.bottom.value, lanternGlow);
 }
 
 /* ───────── 산·숲·마당 ───────── */
@@ -152,8 +154,8 @@ mountainRing(150, 38, 34, 0x8aa49a, 7.7);
   const GREENS = ['#3f6b45', '#4d7a4c', '#356040', '#5c8551', '#b98a3a', '#c96f3a'];
   for (let i = 0; i < COUNT; i++) {
     let x, z;
-    do { const a = Math.random() * Math.PI * 2, r = rand(15, 72); x = Math.sin(a) * r; z = Math.cos(a) * r; }
-    while ((Math.abs(x) < 14 && z > -14 && z < 26) || (Math.abs(x) < 5 && z > 0));
+    do { const a = Math.random() * Math.PI * 2, r = rand(15, 76); x = Math.sin(a) * r; z = Math.cos(a) * r; }
+    while ((Math.abs(x) < 14 && z > -14 && z < 13) || (Math.abs(x) < 25 && z > 12 && z < 51));
     const sc = rand(1, 2.2);
     p.set(x, -0.9 + 1.1 * sc, z); s.set(sc, sc, sc); m.compose(p, q, s); tr.setMatrixAt(i, m);
     const c = pick(GREENS);
@@ -213,7 +215,7 @@ const hall = new THREE.Group(); scene.add(hall);
 box(20, 0.9, 16.4, std(0xffffff, { map: woodTex, roughness: 0.6 }), 0, -0.45, -0.6, hall);
 box(20, 0.9, 4.2, std(0xffffff, { map: stoneTex }), 0, -0.45, 9.7, hall);
 for (let i = 0; i < 3; i++) box(7, 0.3, 0.7, std(0xb7b2a8), 0, -0.15 - i * 0.3, 12.05 + i * 0.6, hall);
-box(4.6, 0.03, 26, std(0xc4bdb0), 0, -0.88, 26, hall);
+box(3.2, 0.03, 26, std(0xc4bdb0), 0, -0.88, 26, hall);
 // 뒷벽·측면벽 (안쪽만 보임)
 const wallMat = std(0xe9dfca, { roughness: 0.95 });
 const backWall = mesh(new THREE.PlaneGeometry(19.4, 7), wallMat, 0, 3.5, -8.6, hall);
@@ -459,7 +461,7 @@ const leaves = [];
 {
   const col = new THREE.Color(), palette = ['#d9852f', '#c95b2b', '#e4b23a', '#b9772b'];
   const spot = (l) => {
-    do { l.x = rand(-24, 24); l.z = rand(-14, 30); } while (Math.abs(l.x) < 12 && l.z < 10.5);
+    do { l.x = rand(-24, 24); l.z = rand(-14, 46); } while (Math.abs(l.x) < 12 && l.z < 10.5);
   };
   for (let i = 0; i < LEAVES; i++) {
     const l = { y: rand(0, 13), sp: rand(0.5, 1.1), ph: Math.random() * 6.28, spot };
@@ -479,9 +481,18 @@ const cushionGroup = new THREE.Group(); scene.add(cushionGroup);
     const m = mesh(geo, mats[(r + c) % 3], x, 0.08, z, cushionGroup);
     const e = mesh(edge, edgeMat, 0, 0.05, 0, m); e.rotation.x = Math.PI / 2;
     m.userData.cushion = cushions.length;
-    cushions.push({ x, z, by: null, mesh: m });
+    cushions.push({ x, z, by: null, mesh: m, zone: 'temple', yaw: Math.PI, h: 0.14 });
   }
 }
+
+/* ───────── 정원 ───────── */
+const garden = buildGarden({ scene, mesh, std, canvasTex, seatGroup: cushionGroup });
+garden.seats.forEach((q) => {
+  q.mesh.userData.cushion = cushions.length;
+  cushions.push(q);
+});
+garden.setStones(state.stones);
+let mode = 'temple';
 
 /* ───────── 동자승 ───────── */
 const G = {
@@ -544,7 +555,24 @@ function makeMonk(name, mine = false) {
   };
 }
 const BOW_TIME = 4.8;
-const PILLARS = [[-4.5, 7.4], [4.5, 7.4]];
+const OBSTACLES = [[-4.5, 7.4, 0.8], [4.5, 7.4, 0.8], ...garden.colliders];
+const POND_MARGIN = 0.55;
+function pushOut(c, dx, dz, sp) {
+  const slide = (ax, az, al, R) => {
+    if (al >= R || al < 0.0001) return null;
+    const tx = -az / al, tz = ax / al, sgn = tx * dx + tz * dz >= 0 ? 1 : -1;
+    return [(ax / al) * R + tx * sgn * sp, (az / al) * R + tz * sgn * sp];
+  };
+  for (const [px, pz, R] of OBSTACLES) {
+    const ax = c.x - px, az = c.z - pz, m = slide(ax, az, Math.hypot(ax, az), R);
+    if (m) { c.x = px + m[0]; c.z = pz + m[1]; }
+  }
+  if (c.z > 15) {
+    const ax = c.x - POND.x, az = c.z - POND.z, R = pondR(Math.atan2(ax, az)) + POND_MARGIN;
+    const m = slide(ax, az, Math.hypot(ax, az), R);
+    if (m) { c.x = POND.x + m[0]; c.z = POND.z + m[1]; }
+  }
+}
 const heightAt = (z) => (z > 11.7 ? -Math.min(0.9, (z - 11.7) * 0.45) : 0);
 
 function setTarget(c, x, z, cush = null, onArrive = null) {
@@ -565,20 +593,14 @@ function updateMonk(c, dt, t) {
   if (c.target) {
     const dx = c.target.x - c.x, dz = c.target.z - c.z, d = Math.hypot(dx, dz);
     if (d < 0.08) {
-      if (c.target.cush != null) { c.cushion = c.target.cush; c.sitTo = 1; c.yawTo = Math.PI; }
+      if (c.target.cush != null) { c.cushion = c.target.cush; c.sitTo = 1; c.yawTo = cushions[c.cushion].yaw; }
       const done = c.onArrive; c.target = null; c.onArrive = null;
       if (c.mine) marker.visible = false;
       done?.();
     } else {
       const sp = (c.mine ? 3 : 2.1) * dt, ox = c.x, oz = c.z;
       c.x += (dx / d) * Math.min(sp, d); c.z += (dz / d) * Math.min(sp, d);
-      for (const [px, pz] of PILLARS) {
-        const ax = c.x - px, az = c.z - pz, al = Math.hypot(ax, az);
-        if (al < 0.8 && al > 0.0001) {
-          const tx = -az / al, tz = ax / al, sgn = tx * dx + tz * dz >= 0 ? 1 : -1;
-          c.x = px + (ax / al) * 0.8 + tx * sgn * sp; c.z = pz + (az / al) * 0.8 + tz * sgn * sp;
-        }
-      }
+      pushOut(c, dx, dz, sp);
       c.yawTo = Math.atan2(dx, dz); moving = 1;
       c.stuck = Math.hypot(c.x - ox, c.z - oz) < sp * 0.2 ? c.stuck + dt : 0;
       if (c.stuck > 0.8) { const cu = c.target.cush; if (cu != null) cushions[cu].by = null; c.target = null; c.onArrive = null; if (c.mine) marker.visible = false; }
@@ -607,7 +629,7 @@ function updateMonk(c, dt, t) {
 
   const low = Math.max(c.sit, kneel);
   const hop = Math.abs(Math.sin(c.phase)) * 0.05 * c.walk;
-  const cushionY = c.cushion != null ? 0.14 * c.sit : 0;
+  const cushionY = c.cushion != null ? cushions[c.cushion].h * c.sit : 0;
   c.root.position.set(c.x, heightAt(c.z) + hop + cushionY, c.z);
   c.root.rotation.y = c.yaw;
   c.root.scale.setScalar(c.pop);
@@ -646,12 +668,12 @@ const npcs = [];
 const marker = mesh(new THREE.RingGeometry(0.18, 0.28, 24), new THREE.MeshBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.8, depthWrite: false }), 0, 0.03, 0);
 marker.rotation.x = -Math.PI / 2; marker.visible = false; scene.add(marker);
 
-const freeCushions = () => cushions.map((c, i) => ({ c, i })).filter(({ c }) => !c.by);
+const freeCushions = (zone = mode) => cushions.map((c, i) => ({ c, i })).filter(({ c }) => !c.by && c.zone === zone);
 const usedNames = new Set();
 const uniqueName = () => { for (let i = 0; i < 40; i++) { const n = randomName(); if (!usedNames.has(n)) { usedNames.add(n); return n; } } return randomName(); };
 
 function addNpc(seated) {
-  const free = freeCushions(); if (!free.length) return;
+  const free = freeCushions('temple'); if (!free.length) return;
   const { i } = pick(free);
   const name = uniqueName();
   const n = makeMonk(name);
@@ -705,6 +727,31 @@ function communityTick(t) {
   syncNpcCount();
 }
 
+/* 정원을 거니는 동자승 */
+const strollers = [];
+const WAY = [[0, 18], [2.8, 26], [1.5, 37], [-3, 43], [-11, 41.5], [9, 37], [8.5, 28], [7, 15.6], [-9, 19], [-14, 21], [-1, 30]];
+function strollerTick(t) {
+  const want = state.npc ? 3 : 0;
+  while (strollers.length < want) {
+    const w = pick(WAY), n = makeMonk(uniqueName());
+    n.x = w[0]; n.z = w[1]; n.nextAct = t + rand(1, 12); n.yaw = n.yawTo = rand(-3, 3);
+    strollers.push(n);
+  }
+  while (strollers.length > want) {
+    const n = strollers.pop();
+    usedNames.delete(n.name);
+    n.root.traverse((o) => { if (o.isSprite) { o.material.map.dispose(); o.material.dispose(); } });
+    scene.remove(n.root);
+  }
+  for (const n of strollers) {
+    if (n.target || t < n.nextAct) continue;
+    if (Math.random() < 0.25) { n.hapTo = 1; n.hapUntil = t + rand(4, 8); n.nextAct = t + rand(8, 16); continue; }
+    const w = pick(WAY);
+    n.nextAct = t + 30;
+    setTarget(n, w[0] + rand(-0.8, 0.8), w[1] + rand(-0.8, 0.8), null, () => { n.nextAct = performance.now() / 1000 + rand(6, 22); });
+  }
+}
+
 /* ───────── 입력 ───────── */
 const orbit = { theta: 0, phi: 1.22, dist: 8.2 };
 const camTarget = new THREE.Vector3(0, 1.15, 7);
@@ -750,20 +797,34 @@ function handleTap(cx, cy) {
   const r = canvas.getBoundingClientRect();
   ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
-  const hit = raycaster.intersectObjects(cushionGroup.children, false)[0];
+  const hit = raycaster.intersectObjects(cushionGroup.children, false).find((h) => cushions[h.object.userData.cushion].zone === mode);
   if (hit) { goToCushion(hit.object.userData.cushion); return; }
+  floorPlane.constant = mode === 'garden' ? -GROUND_Y : 0;
   if (raycaster.ray.intersectPlane(floorPlane, hitV)) walkTo(hitV.x, hitV.z);
 }
-const BOUNDS = { x: 8.4, zMin: -3.9, zMax: 11 };
+const ZONES = {
+  temple: { xMin: -8.4, xMax: 8.4, zMin: -3.9, zMax: 11 },
+  garden: GARDEN_BOUNDS,
+};
+function clampToZone(x, z) {
+  const b = ZONES[mode];
+  x = clamp(x, b.xMin, b.xMax); z = clamp(z, b.zMin, b.zMax);
+  if (mode === 'garden') {
+    const ax = x - POND.x, az = z - POND.z, a = Math.atan2(ax, az), R = pondR(a) + POND_MARGIN + 0.05;
+    if (Math.hypot(ax, az) < R) { x = POND.x + Math.sin(a) * R; z = POND.z + Math.cos(a) * R; }
+  }
+  return [x, z];
+}
 function walkTo(x, z) {
   stopAuto();
-  x = clamp(x, -BOUNDS.x, BOUNDS.x); z = clamp(z, BOUNDS.zMin, BOUNDS.zMax);
+  [x, z] = clampToZone(x, z);
   setTarget(player, x, z);
-  marker.position.set(x, 0.03, z); marker.visible = true; marker.scale.setScalar(1);
+  marker.position.set(x, heightAt(z) + 0.03, z); marker.visible = true; marker.scale.setScalar(1);
   updateSitBtn();
 }
 function goToCushion(i) {
   const c = cushions[i];
+  if (c.zone !== mode) return;
   if (c.by && c.by !== player) { toast('다른 분이 앉아 있는 자리입니다'); return; }
   stopAuto();
   setTarget(player, c.x, c.z, i, updateSitBtn);
@@ -785,12 +846,10 @@ function moveKeys(c, dt, onMove) {
   if (!keyVec.lengthSq()) return;
   if (c.cushion != null || c.target || c.bowT != null) { freeCushion(c); c.cushion = null; c.target = null; c.bowT = null; c.sitTo = 0; c.hapTo = 0; stopAuto(); marker.visible = false; updateSitBtn(); }
   keyVec.normalize().rotateAround({ x: 0, y: 0 }, -orbit.theta);
-  c.x = clamp(c.x + keyVec.x * 3 * dt, -BOUNDS.x, BOUNDS.x);
-  c.z = clamp(c.z + keyVec.y * 3 * dt, BOUNDS.zMin, BOUNDS.zMax);
-  for (const [px, pz] of PILLARS) {
-    const ax = c.x - px, az = c.z - pz, al = Math.hypot(ax, az);
-    if (al < 0.8 && al > 0.0001) { c.x = px + (ax / al) * 0.8; c.z = pz + (az / al) * 0.8; }
-  }
+  const zb = ZONES[mode];
+  c.x = clamp(c.x + keyVec.x * 3 * dt, zb.xMin, zb.xMax);
+  c.z = clamp(c.z + keyVec.y * 3 * dt, zb.zMin, zb.zMax);
+  pushOut(c, keyVec.x, keyVec.y, 0);
   c.yawTo = Math.atan2(keyVec.x, keyVec.y); onMove();
 }
 addEventListener('keydown', (e) => {
@@ -811,7 +870,10 @@ function toast(msg, ms = 2800) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, ms);
 }
 function updateHud() {
-  $('bowToday').textContent = state.bowsToday;
+  const inGarden = mode === 'garden';
+  $('countLabel').textContent = inGarden ? '쌓은 돌' : '오늘 절';
+  $('countOf').hidden = inGarden; $('bowBarWrap').hidden = inGarden;
+  $('bowToday').textContent = inGarden ? state.stones : state.bowsToday;
   $('bowBar').style.width = `${Math.min(100, ((state.bowsToday % 108 || (state.bowsToday ? 108 : 0)) / 108) * 100)}%`;
   $('statTotal').textContent = state.bowsTotal.toLocaleString();
   $('statRounds').textContent = state.rounds.toLocaleString();
@@ -822,12 +884,13 @@ function updateSitBtn() {
 }
 function doHap() {
   if (player.target || player.bowT != null) return;
-  player.yawTo = Math.PI;
+  if (mode === 'temple') player.yawTo = Math.PI;
   if (player.hapTo) { player.hapTo = 0; player.hapUntil = 0; return; }
   player.hapTo = 1; player.hapUntil = performance.now() / 1000 + 8;
   sound.moktak(0.35);
 }
 function doBow() {
+  if (mode !== 'temple') return;
   rollDay();
   if (player.target) { freeCushion(player); player.target = null; marker.visible = false; updateSitBtn(); }
   startBow(player);
@@ -871,6 +934,72 @@ function setChant(on, quiet) {
 }
 $('btnChant').onclick = () => { chantUntil = 0; setChant(!sound.chantOn); };
 $('btnBeads').onclick = () => openModal('beadsModal');
+
+/* 정원 행동 */
+let placing = false, placingDrop = false;
+$('btnStone').onclick = () => {
+  if (placing) return;
+  placing = true;
+  const [sx, sz] = garden.stoneSite(state.stones);
+  const a = Math.atan2(player.x - sx, player.z - sz);
+  const go = clampToZone(sx + Math.sin(a) * 1.15, sz + Math.cos(a) * 1.15);
+  setTarget(player, go[0], go[1], null, () => {
+    placingDrop = true;
+    player.yawTo = Math.atan2(sx - player.x, sz - player.z);
+    state.stones++; save();
+    garden.placeStone(state.stones);
+    garden.onStoneLand(() => {
+      placing = placingDrop = false; sound.stone(); updateHud();
+      if (garden.towerDone(state.stones)) { sound.bell(0.7); toast('돌탑 하나를 다 쌓았습니다', 4000); }
+    });
+  });
+  updateSitBtn();
+};
+$('btnFeed').onclick = () => {
+  const a = Math.atan2(player.x - POND.x, player.z - POND.z), R = pondR(a);
+  const go = clampToZone(POND.x + Math.sin(a) * (R + 0.75), POND.z + Math.cos(a) * (R + 0.75));
+  setTarget(player, go[0], go[1], null, () => {
+    player.yawTo = a + Math.PI;
+    garden.feed(POND.x + Math.sin(a) * (R - 1.7), POND.z + Math.cos(a) * (R - 1.7), performance.now() / 1000);
+    sound.plop();
+    toast('잉어가 모여듭니다');
+  });
+  updateSitBtn();
+};
+
+/* 법당 ↔ 정원 */
+let switching = false, camSnap = false;
+function applyMode(next) {
+  stopAuto();
+  freeCushion(player);
+  mode = next;
+  const inGarden = next === 'garden';
+  player.cushion = null; player.target = null; player.onArrive = null;
+  player.bowT = null; player.sit = player.sitTo = 0; player.hapTo = 0; player.hapUntil = 0;
+  placing = placingDrop = false;
+  marker.visible = false; keys.clear();
+  player.x = 0; player.z = inGarden ? 16 : 8.6;
+  player.yaw = player.yawTo = inGarden ? 0 : Math.PI;
+  orbit.theta = inGarden ? Math.PI : 0; orbit.phi = 1.22; orbit.dist = inGarden ? 9.5 : 8.2;
+  camSnap = true;
+  ['btnBow', 'btnAuto'].forEach((id) => { $(id).hidden = inGarden; });
+  ['btnStone', 'btnFeed'].forEach((id) => { $(id).hidden = !inGarden; });
+  $('modeLabel').textContent = inGarden ? '법당으로' : '정원으로';
+  $('modeIconLeaf').style.display = inGarden ? 'none' : ''; $('modeIconHall').style.display = inGarden ? '' : 'none';
+  sound.setGarden(inGarden);
+  updateHud(); updateSitBtn();
+  toast(inGarden ? '정원입니다. 연못가 돌에 앉아 쉬어 가세요' : '법당으로 돌아왔습니다');
+}
+$('modeBtn').onclick = () => {
+  if (switching) return;
+  switching = true;
+  const fade = $('fade'), next = mode === 'garden' ? 'temple' : 'garden', wait = reduceMotion ? 0 : 420;
+  fade.classList.add('on');
+  setTimeout(() => {
+    applyMode(next);
+    setTimeout(() => { fade.classList.remove('on'); switching = false; }, 60);
+  }, wait);
+};
 $('openSettings').onclick = () => openModal('settingsModal');
 
 /* 모달 */
@@ -971,13 +1100,29 @@ function resize() {
 addEventListener('resize', resize); resize();
 
 const camPos = new THREE.Vector3();
-function updateCamera(dt, snap) {
-  if (player) camTarget.set(snap ? player.x : damp(camTarget.x, player.x, 5, dt), 1.15, snap ? player.z : damp(camTarget.z, player.z, 5, dt));
+let camFit = 1;
+function updateCamera(dt) {
+  const snap = camSnap; camSnap = false;
+  const groundY = player ? heightAt(player.z) : 0;
+  if (player) camTarget.set(snap ? player.x : damp(camTarget.x, player.x, 5, dt), snap ? groundY + 1.15 : damp(camTarget.y, groundY + 1.15, 5, dt), snap ? player.z : damp(camTarget.z, player.z, 5, dt));
   const sinP = Math.sin(orbit.phi);
+  // 정원에서는 탑이나 나무에 시야가 막히면 카메라를 앞으로 당긴다
+  let fit = 1;
+  if (mode === 'garden') {
+    const ox = orbit.dist * sinP * Math.sin(orbit.theta), oz = orbit.dist * sinP * Math.cos(orbit.theta);
+    scan: for (let k = 3; k <= 12; k++) {
+      const s = k / 12, px = camTarget.x + ox * s, pz = camTarget.z + oz * s;
+      for (const [cx, cz, R] of OBSTACLES) {
+        if (Math.hypot(px - cx, pz - cz) < R + 0.3) { fit = Math.max(0.3, (k - 1) / 12); break scan; }
+      }
+    }
+  }
+  camFit = snap ? fit : damp(camFit, fit, fit < camFit ? 9 : 2.5, dt);
+  const camDist = orbit.dist * camFit;
   camPos.set(
-    camTarget.x + orbit.dist * sinP * Math.sin(orbit.theta),
-    clamp(camTarget.y + orbit.dist * Math.cos(orbit.phi), 0.5, 6.4),
-    camTarget.z + orbit.dist * sinP * Math.cos(orbit.theta)
+    camTarget.x + camDist * sinP * Math.sin(orbit.theta),
+    clamp(camTarget.y + camDist * Math.cos(orbit.phi), groundY + 0.5, mode === 'garden' ? 13 : 6.4),
+    camTarget.z + camDist * sinP * Math.cos(orbit.theta)
   );
   camera.position.copy(camPos);
   camera.lookAt(camTarget.x, camTarget.y + 0.75, camTarget.z);
@@ -994,7 +1139,11 @@ function frame(now) {
 
   if (player) updateMonk(player, dt, t);
   npcs.forEach((n) => updateMonk(n, dt, t));
+  strollers.forEach((n) => updateMonk(n, dt, t));
   npcTick(t);
+  strollerTick(t);
+  garden.update(t, dt);
+  if (placing && !placingDrop && !player?.onArrive) placing = false;
 
   if (!reduceMotion) {
     lanterns.forEach((l) => { l.g.rotation.z = Math.sin(t * 0.7 + l.ph) * 0.025; l.g.rotation.x = Math.cos(t * 0.5 + l.ph) * 0.02; });
@@ -1037,7 +1186,7 @@ function enter() {
   sound.start();
   entered = true;
   orbit.theta = 0;
-  $('hud').hidden = false; $('dock').hidden = false;
+  $('hud').hidden = false; $('dock').hidden = false; $('modeBtn').hidden = false;
   const gate = $('gate');
   gate.classList.add('leaving'); setTimeout(() => { gate.hidden = true; }, 400);
   sound.bell(0.6);
@@ -1046,6 +1195,7 @@ function enter() {
 $('enterBtn').onclick = enter;
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('enterBtn').disabled) enter(); });
 
+gardenSky = garden.setSky;
 applyTime();
 setInterval(applyTime, 60000);
 setInterval(yebulTick, 15000);
@@ -1061,4 +1211,4 @@ $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, npcs, cushions, sound };
+window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, garden, strollers, npcs, cushions, sound };
