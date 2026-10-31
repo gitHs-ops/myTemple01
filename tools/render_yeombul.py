@@ -5,7 +5,7 @@ Buddhism" (AAWM 10.1, 2022) — 메나리 E-G-A-C-D(뼈대 E·A·C), 목탁의 �
 바리톤 음역, 집전자 + 대중. 선율 자체는 이 곡을 위해 새로 지었다.
 
 사용: python render_yeombul.py <출력 폴더> <곡 이름...>   (numpy, scipy, soundfile 필요)
-곡 이름: yeombul gwaneum seokga moktak bell
+곡 이름: yeombul gwaneum seokga moktak bell bowl drone breath keshoe
 """
 import os
 import sys
@@ -265,6 +265,79 @@ def bell(path):
     write(path, st)
 
 
+def finish(path, l, r, rt, seed, wet, peak=None, rms_db=None):
+    irl, irr = impulse(rt, seed), impulse(rt, seed + 1)
+    st = np.stack([hp(l * 0.8 + circular(l, irl) * wet), hp(r * 0.8 + circular(r, irr) * wet)], 1)
+    if rms_db is not None:
+        st *= 10 ** (rms_db / 20) / np.sqrt(np.mean(st ** 2))
+    else:
+        st *= peak / np.max(np.abs(st))
+    write(path, st)
+
+
+def bowl(path):
+    """두 개의 싱잉볼을 16초마다 번갈아 친다."""
+    N_ = int(LOOP * OUT_SR)
+    l, r = np.zeros(N_), np.zeros(N_)
+    parts = [(1, 0.9, 13), (1.0045, 0.6, 12), (2.72, 0.32, 7), (2.728, 0.22, 6.5), (5.2, 0.1, 3.5), (8.3, 0.03, 1.8)]
+    for at, base, lv in [(0.5, 196.0, 1.0), (16.5, 293.66, 0.62), (32.5, 196.0, 0.9), (48.5, 293.66, 0.62)]:
+        strike(l, at, [(base * a, b, c) for a, b, c in parts], lv)
+        strike(r, at, [(base * a * 1.0008, b, c) for a, b, c in parts], lv)
+    finish(path, l, r, 3.6, 51, 0.3, peak=0.34)
+
+
+def drone(path):
+    """낮게 이어지는 울림. 모든 주파수를 64초에 정수 번 돌게 맞춰 이음매를 없앤다."""
+    N_ = int(LOOP * OUT_SR)
+    t = np.arange(N_) / OUT_SR
+    tune = lambda f: round(f * LOOP) / LOOP
+    swell = lambda k, ph, d: 1 - d + d * np.sin(2 * np.pi * k * t / LOOP + ph)
+    l, r = np.zeros(N_), np.zeros(N_)
+    for f, a, k, ph in [(55, 0.6, 1, 0.0), (110, 1.0, 2, 1.1), (165, 0.42, 3, 2.3), (220, 0.28, 5, 4.0), (330, 0.09, 7, 0.7), (440, 0.05, 4, 5.2)]:
+        e = a * swell(k, ph, 0.28)
+        l += e * np.sin(2 * np.pi * tune(f) * t)
+        r += e * np.sin(2 * np.pi * tune(f + 0.14) * t + ph)
+    finish(path, l, r, 2.8, 61, 0.2, rms_db=-30)
+
+
+def breath(path):
+    """숨결처럼 부풀었다 잦아드는 소리. 들숨 약 4초, 날숨 약 6초를 여섯 번."""
+    N_ = int(LOOP * OUT_SR)
+    t = np.arange(N_) / OUT_SR
+    T, inh = LOOP / 6, 0.4
+    u = (t % T) / T
+    rise = u < inh
+    pos = np.where(rise, u / inh, (u - inh) / (1 - inh))     # 구간 안의 0~1
+    env = np.sin(np.pi * pos) ** 2
+
+    def band(low, high, seed):                               # 스펙트럼에서 만든 잡음은 그 자체로 순환한다
+        n = np.random.default_rng(seed).normal(0, 1, N_)
+        sp = np.fft.rfft(n)
+        f = np.fft.rfftfreq(N_, 1 / OUT_SR)
+        sp *= np.exp(-((np.log(np.maximum(f, 1)) - np.log(np.sqrt(low * high))) / np.log(high / low)) ** 2)
+        y = np.fft.irfft(sp, N_)
+        return y / np.sqrt(np.mean(y ** 2))
+
+    air_l = band(500, 2400, 71) * rise + band(220, 1200, 72) * ~rise
+    air_r = band(500, 2400, 73) * rise + band(220, 1200, 74) * ~rise
+    freq = np.where(rise, 196 + 51 * pos, 247 - 51 * pos)    # 들숨에 오르고 날숨에 내린다
+    tone = np.sin(2 * np.pi * np.cumsum(freq) / OUT_SR) + 0.25 * np.sin(4 * np.pi * np.cumsum(freq) / OUT_SR)
+    l = env * (air_l * 0.5 + tone * 0.6)
+    r = env * (air_r * 0.5 + tone * 0.6)
+    finish(path, l, r, 2.8, 81, 0.25, rms_db=-31)
+
+
+def keshoe(path):
+    """좌선을 방해하지 않게 32초에 한 번 울리는 경쇠."""
+    N_ = int(LOOP * OUT_SR)
+    l, r = np.zeros(N_), np.zeros(N_)
+    parts = [(1046.5, 1, 2.6), (2410, 0.22, 1.2), (3760, 0.07, 0.5)]
+    for at in (4.0, 36.0):
+        strike(l, at, parts, 1)
+        strike(r, at, [(f * 1.001, a, d) for f, a, d in parts], 1)
+    finish(path, l, r, 3.6, 91, 0.35, peak=0.26)
+
+
 if __name__ == '__main__':
     out = sys.argv[1]
     for name in sys.argv[2:]:
@@ -275,5 +348,7 @@ if __name__ == '__main__':
             moktak(path)
         elif name == 'bell':
             bell(path)
+        elif name in ('bowl', 'drone', 'breath', 'keshoe'):
+            globals()[name](path)
         else:
             raise SystemExit('모르는 곡: ' + name)

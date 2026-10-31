@@ -931,6 +931,12 @@ const TRACKS = [
   { id: 'bell', name: '범종', desc: '16초마다 울리는 큰 종' },
 ];
 if (!TRACKS.some((x) => x.id === state.chantTrack)) state.chantTrack = 'yeombul';
+const MEDITATIONS = [
+  { id: 'bowl', name: '싱잉볼', desc: '16초마다 길게 번지는 울림' },
+  { id: 'drone', name: '깊은 울림', desc: '끊기지 않고 낮게 이어지는 소리' },
+  { id: 'breath', name: '호흡 안내', desc: '들숨 약 4초, 날숨 약 6초에 맞춘 소리' },
+  { id: 'keshoe', name: '경쇠', desc: '32초에 한 번, 고요히 앉을 때' },
+];
 const AMBIENTS = [
   { id: 'wind', name: '산바람과 풍경', desc: '바람 사이로 풍경이 가끔 울립니다' },
   { id: 'stream', name: '계곡물', desc: '바위 사이로 흐르는 물소리' },
@@ -949,12 +955,14 @@ function markList(listId, currentId, stateOf) {
   });
 }
 function drawTracks(loadingId = null) {
-  markList('trackList', sound.chantId || null, (id, on) => (id && id === loadingId ? '불러오는 중…' : on && id ? '재생 중' : ''));
+  for (const list of ['trackList', 'medList']) {
+    markList(list, sound.chantId || null, (id, on) => (id && id === loadingId ? '불러오는 중…' : on && id ? '재생 중' : ''));
+  }
   $('btnChant').setAttribute('aria-pressed', String(!!sound.chantId));
 }
 const drawAmbients = () => markList('ambList', state.ambient, (id, on) => (on && id !== 'off' ? '재생 중' : ''));
 function playTrack(id) {
-  if (id) { state.chantTrack = id; save(); }
+  if (TRACKS.some((x) => x.id === id)) { state.chantTrack = id; save(); }   // 예불 때는 염불만 튼다
   const run = sound.playChant(id);
   drawTracks(id);
   return run.then(() => {
@@ -984,23 +992,31 @@ function fillList(listId, items, onPick) {
   }
 }
 fillList('trackList', [...TRACKS, { id: null, name: '끄기', desc: '조용히 머뭅니다' }], (id) => { chantUntil = 0; playTrack(id); });
+fillList('medList', [...MEDITATIONS, { id: null, name: '끄기', desc: '조용히 머뭅니다' }], (id) => { chantUntil = 0; playTrack(id); });
 fillList('ambList', AMBIENTS, (id) => { state.ambient = id; save(); sound.setAmbient(id); drawAmbients(); });
 function soundTab(which) {
-  const amb = which === 'amb';
-  $('tabChant').setAttribute('aria-selected', String(!amb));
-  $('tabAmb').setAttribute('aria-selected', String(amb));
-  $('panelChant').hidden = amb;
-  $('panelAmb').hidden = !amb;
+  for (const [tab, panel, key] of [['tabChant', 'panelChant', 'chant'], ['tabMed', 'panelMed', 'med'], ['tabAmb', 'panelAmb', 'amb']]) {
+    $(tab).setAttribute('aria-selected', String(which === key));
+    $(panel).hidden = which !== key;
+  }
 }
 $('tabChant').onclick = () => soundTab('chant');
+$('tabMed').onclick = () => soundTab('med');
 $('tabAmb').onclick = () => soundTab('amb');
 $('btnChant').onclick = () => {
   drawTracks(); drawAmbients(); soundTab('chant');
-  $('volChant2').value = state.vol.chant; $('volWind2').value = state.vol.wind;
+  ['volChant2', 'volChant3'].forEach((id) => { $(id).value = state.vol.chant; });
+  $('volWind2').value = state.vol.wind;
   openModal('chantModal');
 };
-[['volChant2', 'volChant', 'chant'], ['volWind2', 'volWind', 'wind']].forEach(([id, other, k]) => {
-  $(id).oninput = () => { state.vol[k] = +$(id).value; $(other).value = state.vol[k]; sound.applyVolumes(); save(); };
+[[['volChant2', 'volChant3', 'volChant'], 'chant'], [['volWind2', 'volWind'], 'wind']].forEach(([ids, k]) => {
+  ids.slice(0, -1).forEach((id) => {
+    $(id).oninput = () => {
+      state.vol[k] = +$(id).value;
+      ids.forEach((o) => { $(o).value = state.vol[k]; });
+      sound.applyVolumes(); save();
+    };
+  });
 });
 $('btnBeads').onclick = () => openModal('beadsModal');
 
