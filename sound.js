@@ -1,11 +1,7 @@
-// 음원 파일 없이 Web Audio로 전부 합성한다.
-const SYLLABLES = [
-  { v: 'a', p: 0, b: 1 }, { v: 'u', p: 0, b: 1 }, { v: 'a', p: 2, b: 1 },
-  { v: 'i', p: 0, b: 1 }, { v: 'a', p: -2, b: 1 }, { v: 'u', p: 0, b: 3 },
-];
-const FORMANTS = { a: [730, 1090, 2440], u: [320, 870, 2240], i: [300, 2200, 3000] };
-const BEAT = 0.62;
-const ROOT = 110;
+// 바람·풍경·목탁·종은 실시간 합성, 염불은 tools/render_yeombul.py로 렌더링한 음원을 반복 재생한다.
+const CHANT_URL = 'audio/yeombul.mp3';
+const CHANT_PAD = 0.25;   // 렌더러의 PAD와 같아야 한다
+const CHANT_LOOP = 60;    // 렌더러의 LOOP와 같아야 한다
 
 export class Sound {
   constructor(vol) { this.vol = vol; this.ctx = null; this.chantOn = false; }
@@ -30,13 +26,12 @@ export class Sound {
       this.buses[k] = g;
     }
     this.chantGate = ctx.createGain(); this.chantGate.gain.value = 0;
-    this.chantGate.connect(this.buses.chant); this.chantGate.connect(this.reverb);
+    this.chantGate.connect(this.buses.chant);
     this.percSend = ctx.createGain(); this.percSend.gain.value = 0.5;
     this.percSend.connect(this.reverb);
     this.buses.perc.connect(this.percSend);
     this.applyVolumes();
     this.startWind();
-    this.chantTimer = setInterval(() => this.scheduleChant(), 300);
     this.chimeTimer = setTimeout(() => this.windChime(), 9000);
     ctx.resume();
   }
@@ -46,7 +41,7 @@ export class Sound {
     const t = this.ctx.currentTime;
     const curve = (v) => Math.pow(v / 100, 1.6);
     this.buses.wind.gain.setTargetAtTime(curve(this.vol.wind) * 0.6, t, 0.05);
-    this.buses.chant.gain.setTargetAtTime(curve(this.vol.chant) * 0.9, t, 0.05);
+    this.buses.chant.gain.setTargetAtTime(curve(this.vol.chant) * 1.6, t, 0.05);
     this.buses.perc.gain.setTargetAtTime(curve(this.vol.perc), t, 0.05);
   }
 
@@ -122,48 +117,36 @@ export class Sound {
     this.tone(70, t, 0.25, 0.25 * level, this.buses.perc);
   }
 
-  setChant(on) {
+  loadChant() {
+    this.chantBuf ??= fetch(CHANT_URL)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+      .then((b) => this.ctx.decodeAudioData(b))
+      .catch((e) => { this.chantBuf = null; throw e; });
+    return this.chantBuf;
+  }
+
+  async setChant(on) {
     this.chantOn = on;
     if (!this.ctx) return;
     this.ctx.resume();
     const t = this.ctx.currentTime;
     this.chantGate.gain.cancelScheduledValues(t);
-    this.chantGate.gain.setTargetAtTime(on ? 1 : 0, t, on ? 0.5 : 0.35);
-    if (on) { this.next = t + 0.6; this.sylIdx = 0; }
-  }
-
-  scheduleChant() {
-    if (!this.chantOn || !this.ctx) return;
-    const horizon = this.ctx.currentTime + 1.6;
-    if (this.next < this.ctx.currentTime) this.next = this.ctx.currentTime + 0.1;
-    while (this.next < horizon) {
-      const s = SYLLABLES[this.sylIdx], dur = s.b * BEAT;
-      this.sing(this.next, dur * (s.b > 1 ? 0.82 : 0.92), s);
-      for (let i = 0; i < s.b; i++) this.moktak(0.32, this.next + i * BEAT, this.chantGate);
-      this.next += dur;
-      this.sylIdx = (this.sylIdx + 1) % SYLLABLES.length;
-      if (this.sylIdx === 0) this.next += BEAT;
+    if (!on) {
+      this.chantGate.gain.setTargetAtTime(0, t, 0.35);
+      const src = this.chantSrc; this.chantSrc = null;
+      src?.stop(t + 2);
+      return;
     }
-  }
-
-  sing(t, dur, s) {
-    const { ctx } = this, f0 = ROOT * Math.pow(2, s.p / 12);
-    const voice = ctx.createGain();
-    voice.gain.setValueAtTime(0.0001, t);
-    voice.gain.exponentialRampToValueAtTime(0.5, t + 0.09);
-    voice.gain.setValueAtTime(0.5, t + Math.max(0.1, dur - 0.16));
-    voice.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    FORMANTS[s.v].forEach((f, i) => {
-      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 9;
-      const g = ctx.createGain(); g.gain.value = [1.8, 0.8, 0.28][i];
-      voice.connect(bp); bp.connect(g); g.connect(this.chantGate);
-    });
-    const low = ctx.createGain(); low.gain.value = 0.11; voice.connect(low); low.connect(this.chantGate);
-    for (const [ratio, det, amp] of [[1, -5, 0.5], [1, 6, 0.5], [0.5, 0, 0.42]]) {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'sawtooth'; o.frequency.value = f0 * ratio; o.detune.value = det; g.gain.value = amp;
-      o.connect(g); g.connect(voice);
-      o.start(t); o.stop(t + dur + 0.05);
-    }
+    const buf = await this.loadChant();
+    if (!this.chantOn || this.chantSrc) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    src.loopStart = CHANT_PAD; src.loopEnd = CHANT_PAD + CHANT_LOOP;
+    src.connect(this.chantGate);
+    const now = this.ctx.currentTime;
+    src.start(now, CHANT_PAD);
+    this.chantGate.gain.cancelScheduledValues(now);
+    this.chantGate.gain.setTargetAtTime(1, now, 0.4);
+    this.chantSrc = src;
   }
 }

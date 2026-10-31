@@ -1,5 +1,5 @@
 import * as THREE from './vendor/three.min.js';
-import { Sound } from './sound.js';
+import { Sound } from './sound.js?v=2';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -810,9 +810,13 @@ $('btnSit').onclick = () => {
   goToCushion(i);
 };
 function setChant(on, quiet) {
-  sound.setChant(on);
   $('btnChant').setAttribute('aria-pressed', String(on));
-  if (on && !quiet) toast('나무아미타불');
+  sound.setChant(on).then(() => {
+    if (on && !quiet && sound.chantOn) toast('나무아미타불');
+  }).catch(() => {
+    sound.chantOn = false; $('btnChant').setAttribute('aria-pressed', 'false');
+    toast('염불 음원을 불러오지 못했습니다. 다시 눌러 주세요');
+  });
 }
 $('btnChant').onclick = () => { chantUntil = 0; setChant(!sound.chantOn); };
 $('btnBeads').onclick = () => openModal('beadsModal');
