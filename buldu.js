@@ -28,15 +28,24 @@ export function buildBuldu(scene, groundY, getEnv) {
     model.traverse((o) => {
       if (!o.isMesh) return;
       o.material = o.material.clone();
-      o.material.color.set(0xfff0a6);
-      o.material.metalness = 0.85; o.material.roughness = 0.36;
+      o.material.color.set(0xffffff);
+      o.material.metalness = 0.6; o.material.roughness = 0.34;
       o.material.envMap = envMap;
-      o.material.emissive?.set(0x241806);
+      o.material.emissive.set(0xffffff);
+      // 스캔의 명암만 남기고 색은 금박으로 칠한다. 등진 해에도 어두워지지 않게 금색이 스스로 은은히 빛난다
+      o.material.onBeforeCompile = (sh) => {
+        sh.fragmentShader = sh.fragmentShader
+          .replace('#include <map_fragment>', `#include <map_fragment>
+            float goldL = dot(diffuseColor.rgb, vec3(0.3, 0.6, 0.1));
+            diffuseColor.rgb = mix(vec3(0.42, 0.22, 0.03), vec3(1.0, 0.72, 0.2), smoothstep(0.04, 0.42, goldL));`)
+          .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+            totalEmissiveRadiance *= diffuseColor.rgb;`);
+      };
       gilded.push(o.material);
     });
     holder.add(model); root.add(holder);
   });
   // 밤에는 금빛 반사도 함께 잦아든다
-  root.userData.setLight = (k) => { for (const m of gilded) { m.envMapIntensity = 1.25 * k; m.emissiveIntensity = k; } };
+  root.userData.setLight = (k) => { for (const m of gilded) { m.envMapIntensity = 1.0 * k; m.emissiveIntensity = 0.38 - 0.2 * k; } };
   return root;
 }

@@ -6,7 +6,7 @@ import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
 import { Cat } from './cats.js?v=1';
-import { BULDU, buildBuldu } from './buldu.js?v=4';
+import { BULDU, buildBuldu } from './buldu.js?v=5';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
