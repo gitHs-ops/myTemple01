@@ -1,9 +1,9 @@
 // 정원의 청동 불두: 금빛 얼굴, 짙은 나발, 납작한 윗머리. 형태는 코드로 빚고 얼굴 그림은 캔버스로 그린다
 import * as THREE from './vendor/three.min.js';
 
-export const BULDU = { x: -9, z: 44, yaw: 2.34, stand: { x: -3.2, z: 38.4 }, viewTheta: 2.34 };
+export const BULDU = { x: -6, z: 58, yaw: 2.82, stand: { x: -1.5, z: 44.4 }, viewTheta: 2.82 };
 
-const SCALE = 2.75;
+const SCALE = 8.25;
 const sm = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
 const gs = (X, Y, cx, cy, sx, sy) => Math.exp(-(((X - cx) / sx) ** 2) - (((Y - cy) / sy) ** 2));
 const browY = (X) => 0.34 - 1.9 * (Math.abs(X) - 0.3) ** 2;
@@ -135,7 +135,7 @@ function capTexture() {
 
 export function buildBuldu(scene, groundY) {
   const root = new THREE.Group();
-  root.position.set(BULDU.x, groundY + 3.62, BULDU.z);
+  root.position.set(BULDU.x, groundY + 10.86, BULDU.z);
   root.rotation.y = BULDU.yaw;
   root.scale.setScalar(SCALE);
   scene.add(root);

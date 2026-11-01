@@ -6,7 +6,7 @@ export const pondR = (a) => 7 + 1.1 * Math.sin(2 * a + 1) + 0.7 * Math.sin(3 * a
 export const CAT = { x: 3.45, z: 21.6, yaw: 1.3, len: 1.9 };   // 석등 옆 풀밭에 누운 고양이
 export const GARDEN_BOUNDS = { xMin: -21, xMax: 21, zMin: 14.5, zMax: 47 };
 
-const BULDU_SPOT = { x: -9, z: 44 };   // buldu.js의 BULDU와 같은 자리
+const BULDU_SPOT = { x: -6, z: 58 };   // buldu.js의 BULDU와 같은 자리
 const TOWER_SITES = [[12, 24.5], [14.6, 28], [12, 31.5], [14.6, 35]];
 const PER_TOWER = 16;
 const MAX_STONES = TOWER_SITES.length * PER_TOWER;
@@ -22,7 +22,7 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
   const rnd = seeded(2610);
   const r = (a, b) => a + rnd() * (b - a);
   const root = new THREE.Group(); scene.add(root);
-  const colliders = [[8.5, 19, 2.6], [CAT.x, CAT.z, 0.95, true], [BULDU_SPOT.x, BULDU_SPOT.z, 3.1]];
+  const colliders = [[8.5, 19, 2.6], [CAT.x, CAT.z, 0.95, true], [BULDU_SPOT.x, BULDU_SPOT.z, 8.6]];
   const lamb = (color, o = {}) => new THREE.MeshLambertMaterial({ color, ...o });
   const dummy = new THREE.Object3D();
 
@@ -189,7 +189,7 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
     autumn: [0xc8452d, 0xdb6a2b, 0xe08c2e, 0xb8382e],
   };
   const crownCols = CROWN.autumn, trees = [];
-  [[17, 22], [18.5, 38], [8, 43.5], [-3.5, 45], [-18.5, 42], [-19.5, 25], [18, 44], [5, 24.5]].forEach(([x, z], i) => {
+  [[17, 22], [18.5, 38], [8, 43.5], [13, 46], [-18.5, 42], [-19.5, 25], [18, 44], [5, 24.5]].forEach(([x, z], i) => {
     const t = new THREE.Group(); t.position.set(x, GROUND_Y, z); root.add(t);
     const s = r(0.9, 1.25);
     mesh(new THREE.CylinderGeometry(0.16 * s, 0.3 * s, 3 * s, 7), trunkMat, 0, 1.5 * s, 0, t);

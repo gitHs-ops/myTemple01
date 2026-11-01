@@ -1,9 +1,9 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=9';
-import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=4';
+import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=5';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
-import { BULDU, buildBuldu } from './buldu.js?v=1';
+import { BULDU, buildBuldu } from './buldu.js?v=2';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -327,7 +327,7 @@ mountainRing(150, 38, 34, 0x8aa49a, 7.7);
   for (let i = 0; i < COUNT; i++) {
     let x, z;
     do { const a = Math.random() * Math.PI * 2, r = rand(15, 76); x = Math.sin(a) * r; z = Math.cos(a) * r; }
-    while ((Math.abs(x) < 14 && z > -14 && z < 13) || (Math.abs(x) < 25 && z > 12 && z < 51));
+    while ((Math.abs(x) < 14 && z > -14 && z < 13) || (Math.abs(x) < 25 && z > 12 && z < 51) || Math.hypot(x + 6, z - 58) < 13);   // 청동 불두 자리는 비운다
     const sc = rand(1, 2.2);
     p.set(x, -0.9 + 1.1 * sc, z); s.set(sc, sc, sc); m.compose(p, q, s); tr.setMatrixAt(i, m);
     const broad = Math.random() < 0.34, c = pick(GREENS), shade = rand(0, 1);
@@ -1060,7 +1060,7 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap.moved = true;
   if (tap?.moved) {
-    orbit.theta -= dx * 0.006; poseOff = true;
+    orbit.theta -= dx * 0.006; poseOff = true; atBuldu = false;
     if (skyBack) skyEl = clamp(skyEl - dy * 0.004, 0.08, 1.52);
     else {
       skyGoal = null;
@@ -1121,7 +1121,9 @@ function goToBuldu() {
   const { x, z } = BULDU.stand;
   setTarget(player, x, z, null, () => {
     player.yawTo = Math.atan2(BULDU.x - x, BULDU.z - z);
-    skyGoal = { phi: 1.3, dist: 9.5, theta: BULDU.viewTheta };
+    bulduBack = { phi: orbit.phi, dist: orbit.dist };
+    skyGoal = { phi: 1.42, dist: 18, theta: BULDU.viewTheta };
+    atBuldu = true;
     updateSitBtn();
     toast('청동 불두 앞에 왔습니다. 합장해 보세요', 4000);
   });
@@ -1724,7 +1726,7 @@ addEventListener('resize', resize); resize();
 
 const camPos = new THREE.Vector3();
 let camFit = 1;
-let poseK = 0, poseOff = false;
+let poseK = 0, poseOff = false, atBuldu = false, bulduLift = 0, bulduBack = null;
 const POSE_TURN = 1.7, POSE_TURN_BOW = 2.5, POSE_DIST = 4.8;
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 function updateCamera(dt) {
@@ -1745,7 +1747,7 @@ function updateCamera(dt) {
   const baseDist = orbit.dist + (Math.min(orbit.dist, POSE_DIST) - orbit.dist) * poseK;
   // 정원에서는 탑이나 나무에 시야가 막히면 카메라를 앞으로 당긴다
   let fit = 1;
-  if (mode === 'garden' || poseK > 0.01) {
+  if ((mode === 'garden' || poseK > 0.01) && !atBuldu) {
     const ox = baseDist * sinP * Math.sin(camTheta), oz = baseDist * sinP * Math.cos(camTheta);
     scan: for (let k = 3; k <= 12; k++) {
       const s = k / 12, px = camTarget.x + ox * s, pz = camTarget.z + oz * s;
@@ -1763,7 +1765,9 @@ function updateCamera(dt) {
   );
   camera.position.copy(camPos);
   skyLookK = snap ? 0 : damp(skyLookK, skyBack ? 1 : 0, 2.4, dt);
-  const lookY = camTarget.y + 0.75 - 1.1 * poseK + Math.max(0, orbit.phi - 1.5) * 3.2;
+  if (atBuldu && (player.target || keys.size)) { atBuldu = false; skyGoal = bulduBack; }
+  bulduLift = snap ? 0 : damp(bulduLift, atBuldu ? 4.8 : 0, 2.4, dt);   // 큰 불두가 화면에 들어오게 올려다본다
+  const lookY = camTarget.y + 0.75 - 1.1 * poseK + bulduLift + Math.max(0, orbit.phi - 1.5) * 3.2;
   if (skyLookK > 0.001) {
     const ce = Math.cos(skyEl);   // 카메라에서 하늘 쪽으로 향하는 점으로 시선을 옮긴다
     const fx = camPos.x - Math.sin(camTheta) * ce * 10, fy = camPos.y + Math.sin(skyEl) * 10, fz = camPos.z - Math.cos(camTheta) * ce * 10;
