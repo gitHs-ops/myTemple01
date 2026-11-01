@@ -660,13 +660,13 @@ function nameSprite(text, mine) {
   s.scale.set((w / 68) * 0.27, 0.27, 1); s.position.y = 1.86;
   return s;
 }
-/* 합장 자세: 팔꿈치를 옆으로 벌리고 두 손을 가슴 앞에 길게 모은다 */
+/* 합장 자세: 두 팔을 앞으로 길게 내밀어 끝에서 손을 모은다 */
 const ARM_UP = 0.24, ARM_FORE = 0.3;
 const HAP_POSE = (() => {
   const down = new THREE.Vector3(0, -1, 0), out = {};
   const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12, 0, 0));
   for (const s of [-1, 1]) {
-    const S = new THREE.Vector3(s * 0.25, 0.74, 0.02), E = new THREE.Vector3(s * 0.46, 0.58, 0.3), H = new THREE.Vector3(s * 0.058, 0.8, 0.66);
+    const S = new THREE.Vector3(s * 0.25, 0.74, 0.02), E = new THREE.Vector3(s * 0.19, 0.7, 0.54), H = new THREE.Vector3(s * 0.058, 0.82, 1.08);
     const u = E.clone().sub(S), f = H.clone().sub(E);
     const qU = new THREE.Quaternion().setFromUnitVectors(down, u.clone().normalize());
     const qF = new THREE.Quaternion().setFromUnitVectors(down, f.clone().normalize());
@@ -812,13 +812,13 @@ function updateMonk(c, dt, t) {
   for (const { a, s, up, e, fore, w, hand, pose } of c.arms) {
     const swing = Math.sin(c.phase + (s > 0 ? 0 : Math.PI)) * 0.55 * c.walk;
     const lap = c.sit * (1 - c.hap);
-    eulerArm.set(swing * (1 - c.hap) - 0.72 * lap - 1.65 * down, 0, s * (0.2 * (1 - c.hap) * (1 - lap) - 0.5 * lap + 0.05 * down));
+    eulerArm.set(swing * (1 - c.hap) - 0.72 * lap - 3.02 * down, 0, s * (0.2 * (1 - c.hap) * (1 - lap) - 0.5 * lap + 0.26 * down));
     qRest.setFromEuler(eulerArm);
     a.quaternion.slerpQuaternions(qRest, pose.upper, hapK);
     e.quaternion.slerpQuaternions(qOne, pose.elbow, hapK);
     w.quaternion.slerpQuaternions(qOne, pose.wrist, hapK);
-    // 합장할 때와 절할 때는 팔이 길게 뻗는다
-    const lenU = 1 + (pose.lenU - 1) * hapK + 0.25 * down, lenF = 1 + (pose.lenF - 1) * hapK + 0.25 * down;
+    // 합장할 때와 절할 때는 팔이 앞으로 길게 뻗는다
+    const lenU = 1 + (pose.lenU - 1) * hapK + 1.1 * down, lenF = 1 + (pose.lenF - 1) * hapK + 1.1 * down;
     up.scale.y = lenU; up.position.y = -ARM_UP / 2 * lenU;
     e.position.y = -ARM_UP * lenU;
     fore.scale.y = lenF; fore.position.y = -ARM_FORE / 2 * lenF;
