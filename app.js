@@ -647,13 +647,26 @@ const leaves = [];
 const cushions = [];
 const cushionGroup = new THREE.Group(); scene.add(cushionGroup);
 {
-  const geo = new THREE.CylinderGeometry(0.62, 0.68, 0.16, 26);
+  // 절할 때 이마가 닿도록 앞뒤로 긴 직사각형 방석
+  const CW = 1.2, CD = 1.7, CH = 0.16, BEVEL = 0.03;
+  const roundRect = (S, w, d, r) => {
+    S.moveTo(-w / 2 + r, -d / 2); S.lineTo(w / 2 - r, -d / 2); S.quadraticCurveTo(w / 2, -d / 2, w / 2, -d / 2 + r);
+    S.lineTo(w / 2, d / 2 - r); S.quadraticCurveTo(w / 2, d / 2, w / 2 - r, d / 2);
+    S.lineTo(-w / 2 + r, d / 2); S.quadraticCurveTo(-w / 2, d / 2, -w / 2, d / 2 - r);
+    S.lineTo(-w / 2, -d / 2 + r); S.quadraticCurveTo(-w / 2, -d / 2, -w / 2 + r, -d / 2);
+    return S;
+  };
+  const geo = new THREE.ExtrudeGeometry(roundRect(new THREE.Shape(), CW - BEVEL * 2, CD - BEVEL * 2, 0.07), { depth: CH - BEVEL * 2, bevelEnabled: true, bevelSize: BEVEL, bevelThickness: BEVEL, bevelSegments: 2, curveSegments: 5 });
+  geo.rotateX(-Math.PI / 2); geo.translate(0, -(CH - BEVEL * 2) / 2, 0);
   const mats = [std(0xa33c3a), std(0x38708a), std(0x8a6a2d)];
-  const edge = new THREE.TorusGeometry(0.65, 0.025, 6, 26), edgeMat = std(0xe8c35a);
+  const trim = roundRect(new THREE.Shape(), CW - 0.1, CD - 0.1, 0.06);
+  trim.holes.push(roundRect(new THREE.Path(), CW - 0.17, CD - 0.17, 0.04));
+  const edge = new THREE.ShapeGeometry(trim, 5); edge.rotateX(-Math.PI / 2);
+  const edgeMat = std(0xe8c35a);
   for (let r = 0; r < 4; r++) for (let c = 0; c < 5; c++) {
     const x = -6 + c * 3, z = -2.5 + r * 2;
-    const m = mesh(geo, mats[(r + c) % 3], x, 0.08, z, cushionGroup);
-    const e = mesh(edge, edgeMat, 0, 0.05, 0, m); e.rotation.x = Math.PI / 2;
+    const m = mesh(geo, mats[(r + c) % 3], x, 0.08, z - 0.12, cushionGroup);
+    mesh(edge, edgeMat, 0, CH / 2 + 0.006, 0, m);
     m.userData.cushion = cushions.length;
     cushions.push({ x, z, by: null, mesh: m, zone: 'temple', yaw: Math.PI, h: 0.14 });
   }
