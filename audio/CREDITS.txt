@@ -22,6 +22,6 @@ amb_stream.mp3
 https://commons.wikimedia.org/wiki/File:433589_jackthemurray_stream-river-water-up-close.wav
 
 amb_rain.mp3
-원본: Rain against the window, cori
-라이선스: 퍼블릭 도메인
-https://commons.wikimedia.org/wiki/File:Rain_against_the_window.ogg
+원본: October rain in Nepal, Nirmal Dulal
+라이선스: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+https://commons.wikimedia.org/wiki/File:October_rain_in_Nepal.ogg

@@ -2,9 +2,9 @@
 const chantUrl = (id) => `audio/${id}.mp3?v=4`;
 const CHANT_PAD = 0.25;   // 렌더러의 PAD와 같아야 한다
 const CHANT_LOOP = 64;    // 렌더러의 LOOP와 같아야 한다
-const AMB_LOOP = { wind: 58, stream: 60, rain: 58, forest: 47, night: 27 };   // tools/render_ambience.py의 고리 길이(초)
+const AMB_LOOP = { wind: 58, stream: 60, rain: 57, forest: 47, night: 27 };   // tools/render_ambience.py의 고리 길이(초)
 const AMB_LEVEL = { wind: 3, stream: 2, rain: 2, forest: 3, night: 3 };   // 소리 사이 크기 맞춤
-const ambUrl = (id) => `audio/amb_${id}.mp3?v=1`;
+const ambUrl = (id) => `audio/amb_${id}.mp3?v=2`;
 
 export class Sound {
   constructor(vol) { this.vol = vol; this.ctx = null; this.chantOn = false; this.ambId = 'wind'; }

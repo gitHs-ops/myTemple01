@@ -3,6 +3,7 @@ import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=9';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=4';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
+import { BULDU, buildBuldu } from './buldu.js?v=1';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -1084,6 +1085,7 @@ function handleTap(cx, cy) {
   const r = canvas.getBoundingClientRect();
   ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
+  if (mode === 'garden' && !skyBack && raycaster.intersectObject(bulduHead, true).length) { goToBuldu(); return; }
   const hit = raycaster.intersectObjects(cushionGroup.children, false).find((h) => cushions[h.object.userData.cushion].zone === mode);
   if (hit) { goToCushion(hit.object.userData.cushion); return; }
   floorPlane.constant = mode === 'garden' ? -GROUND_Y : 0;
@@ -1108,6 +1110,22 @@ function walkTo(x, z) {
   setTarget(player, x, z);
   marker.position.set(x, heightAt(z) + 0.03, z); marker.visible = true; marker.scale.setScalar(1);
   updateSitBtn();
+}
+function goToBuldu() {
+  if (skyBack) $('skyBtn').click();
+  stopAuto();
+  poseOff = true;
+  freeCushion(player); player.cushion = null;
+  const { x, z } = BULDU.stand;
+  setTarget(player, x, z, null, () => {
+    player.yawTo = Math.atan2(BULDU.x - x, BULDU.z - z);
+    skyGoal = { phi: 1.3, dist: 9.5, theta: BULDU.viewTheta };
+    updateSitBtn();
+    toast('청동 불두 앞에 왔습니다. 합장해 보세요', 4000);
+  });
+  marker.position.set(x, heightAt(z) + 0.03, z); marker.visible = true; marker.scale.setScalar(1);
+  updateSitBtn();
+  toast('청동 불두를 찾아갑니다');
 }
 function goToCushion(i) {
   const c = cushions[i];
@@ -1300,12 +1318,12 @@ const MEDITATIONS = [
   { id: 'keshoe', name: '경쇠', desc: '32초에 한 번, 고요히 앉을 때' },
 ];
 const AMBIENTS = [
-  { id: 'wind', name: '산바람과 풍경', short: '산바람', desc: '실제 바람 녹음에 풍경이 가끔 울립니다' },
-  { id: 'stream', name: '계곡물', short: '계곡물', desc: '가까이에서 녹음한 냇물 소리' },
-  { id: 'rain', name: '빗소리', short: '빗소리', desc: '창밖에 내리는 비를 녹음한 소리' },
-  { id: 'forest', name: '새 우는 숲', short: '새소리', desc: '아침 숲에서 녹음한 새소리' },
-  { id: 'night', name: '풀벌레 밤', short: '풀벌레', desc: '밤에 녹음한 풀벌레 소리' },
-  { id: 'off', name: '끄기', short: '끔', desc: '배경음을 끕니다' },
+  { id: 'wind', name: '산바람과 풍경', desc: '실제 바람 녹음에 풍경이 가끔 울립니다' },
+  { id: 'stream', name: '계곡물', desc: '가까이에서 녹음한 냇물 소리' },
+  { id: 'rain', name: '빗소리', desc: '실제 빗소리 녹음' },
+  { id: 'forest', name: '새 우는 숲', desc: '아침 숲에서 녹음한 새소리' },
+  { id: 'night', name: '풀벌레 밤', desc: '밤에 녹음한 풀벌레 소리' },
+  { id: 'off', name: '끄기', desc: '배경 소리를 끕니다' },
 ];
 if (!AMBIENTS.some((x) => x.id === state.ambient)) state.ambient = 'wind';
 sound.ambId = state.ambient;
@@ -1327,9 +1345,9 @@ let ambLoading = null;
 const drawAmbients = () => {
   markList('ambList', state.ambient, (id, on) => (on && id !== 'off' ? (id === ambLoading ? '불러오는 중…' : '재생 중') : ''));
   $('setAmb').value = state.ambient;
-  $('ambLabel').textContent = `배경음 · ${AMBIENTS.find((x) => x.id === state.ambient)?.short ?? ''}`;
+  $('ambLabel').textContent = `배경 소리 · ${AMBIENTS.find((x) => x.id === state.ambient)?.name ?? ''}`;
 };
-const ambFail = () => toast('배경음을 불러오지 못했습니다. 다시 골라 주세요');
+const ambFail = () => toast('배경 소리를 불러오지 못했습니다. 다시 골라 주세요');
 sound.onAmbError = ambFail;
 function pickAmbient(id) {
   state.ambient = id; save();
@@ -1388,7 +1406,7 @@ $('btnChant').onclick = () => {
   openModal('chantModal');
 };
 [[['volChant2', 'volChant3', 'volChant'], 'chant'], [['volWind2', 'volWind'], 'wind']].forEach(([ids, k]) => {
-  ids.slice(0, -1).forEach((id) => {
+  ids.forEach((id) => {
     $(id).oninput = () => {
       state.vol[k] = +$(id).value;
       ids.forEach((o) => { $(o).value = state.vol[k]; });
@@ -1446,7 +1464,7 @@ function applyMode(next) {
   orbit.theta = inGarden ? Math.PI : 0; orbit.phi = 1.22; orbit.dist = inGarden ? 9.5 : 8.2;
   camSnap = true;
   ['btnBow', 'btnAuto'].forEach((id) => { $(id).hidden = inGarden; });
-  ['btnStone', 'btnFeed', 'seasonBtn', 'skyBtn'].forEach((id) => { $(id).hidden = !inGarden; });
+  ['btnStone', 'btnFeed', 'seasonBtn', 'skyBtn', 'bulduBtn'].forEach((id) => { $(id).hidden = !inGarden; });
   $('ambBtn').classList.toggle('below', inGarden);
   skyGoal = null; skyBack = null; $('skyLabel').textContent = '하늘 보기';
   setStarMode(false, true);
@@ -1588,6 +1606,7 @@ function stepStarAnim(dt) {
   applyTime();
 }
 $('starBtn').onclick = () => setStarMode(!starMode);
+$('bulduBtn').onclick = goToBuldu;
 fillList('seasonList', [
   { id: 'auto', name: '오늘 날짜에 맞추기', desc: '3~5월 봄, 6~8월 여름, 9~11월 가을, 12~2월 겨울' },
   ...Object.entries(SEASONS).map(([id, c]) => ({ id, name: c.name, desc: c.desc })),
@@ -1671,7 +1690,7 @@ function advanceBead() {
 /* 설정 */
 [['volWind', 'wind'], ['volChant', 'chant'], ['volPerc', 'perc']].forEach(([id, k]) => {
   $(id).value = state.vol[k];
-  $(id).oninput = () => { state.vol[k] = +$(id).value; sound.applyVolumes(); save(); };
+  if (id === 'volPerc') $(id).oninput = () => { state.vol[k] = +$(id).value; sound.applyVolumes(); save(); };
 });
 const npcLabel = () => { $('npcLabel').textContent = state.npc ? `${state.npc}명` : '혼자'; };
 $('npcCount').value = state.npc; npcLabel();
@@ -1769,7 +1788,8 @@ function frame(now) {
   if (!reduceMotion) catBreath.value = 0.007 * (0.5 + 0.5 * Math.sin(t * 2));
   if (skyGoal) {
     orbit.phi = damp(orbit.phi, skyGoal.phi, 2.4, dt); orbit.dist = damp(orbit.dist, skyGoal.dist, 2.4, dt);
-    if (Math.abs(orbit.phi - skyGoal.phi) < 0.004 && Math.abs(orbit.dist - skyGoal.dist) < 0.02) skyGoal = null;
+    if (skyGoal.theta != null) orbit.theta += wrapAngle(skyGoal.theta - orbit.theta) * (1 - Math.exp(-2.4 * dt));
+    if (Math.abs(orbit.phi - skyGoal.phi) < 0.004 && Math.abs(orbit.dist - skyGoal.dist) < 0.02 && (skyGoal.theta == null || Math.abs(wrapAngle(skyGoal.theta - orbit.theta)) < 0.01)) skyGoal = null;
   }
   if (placing && !placingDrop && !player?.onArrive) placing = false;
 
@@ -1824,6 +1844,7 @@ $('enterBtn').onclick = enter;
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('enterBtn').disabled) enter(); });
 
 gardenSky = garden.setSky;
+const bulduHead = buildBuldu(scene, GROUND_Y);
 applyTime();
 applySeason();
 setInterval(() => { applyTime(); applySeason(); }, 60000);
@@ -1840,5 +1861,5 @@ $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };

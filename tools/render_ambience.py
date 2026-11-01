@@ -1,6 +1,6 @@
 # 받은 녹음을 잘라 고리로 잇고 크기를 맞춘다. 원본 출처는 audio/CREDITS.txt
 # 사용: python render_ambience.py <원본 폴더> <출력 폴더>   (numpy, scipy, soundfile 필요)
-# 원본 파일 이름은 wind2, stream1, rain1, forest1, night1. libsndfile이 읽지 못하는 것은 .f32(+.meta "표본율 채널수")로 풀어 둔다
+# 원본 파일 이름은 wind2, stream1, rain4, forest1, night1. libsndfile이 읽지 못하는 것은 .f32(+.meta "표본율 채널수")로 풀어 둔다
 import os, sys
 import numpy as np, soundfile as sf
 from scipy.signal import butter, sosfilt, resample_poly
@@ -18,8 +18,8 @@ def load(k):
 
 # 이름, 원본, 시작(초), 고리 길이(초, sound.js의 AMB_LOOP와 맞출 것), 저역 제거, 고역 제거, 목표 RMS(dB)
 JOBS = [("amb_wind",   "wind2",   95, 58, 110, None,  -28),
-        ("amb_stream", "stream1",  4, 60,  80, None,  -28),
-        ("amb_rain",   "rain1",   20, 58, 120, None,  -28),
+        ("amb_stream", "stream1",  4, 60,  80, 3800,  -28),
+        ("amb_rain",   "rain4",    0, 57, 320, None,  -28),
         ("amb_forest", "forest1",  3, 47, 200, None,  -34),
         ("amb_night",  "night1",   0, 27, 200, 13000, -36)]
 

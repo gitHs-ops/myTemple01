@@ -221,7 +221,8 @@ input[type=range] { width: 100%; height: 26px; margin: 0; accent-color: var(--ac
 #skyBtn { top: calc(env(safe-area-inset-top) + 158px); }
 #ambBtn { top: calc(env(safe-area-inset-top) + 110px); }
 #ambBtn.below { top: calc(env(safe-area-inset-top) + 206px); }
-#starBtn { top: calc(env(safe-area-inset-top) + 254px); }
+#bulduBtn { top: calc(env(safe-area-inset-top) + 254px); }
+#starBtn { top: calc(env(safe-area-inset-top) + 302px); }
 #starBtn[aria-pressed="true"] { background: var(--accent-primary); color: #fff; }
 #starBtn[aria-pressed="true"] svg { color: #fff; }
 .const-block { margin-top: 12px; }

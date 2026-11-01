@@ -6,6 +6,7 @@ export const pondR = (a) => 7 + 1.1 * Math.sin(2 * a + 1) + 0.7 * Math.sin(3 * a
 export const CAT = { x: 3.45, z: 21.6, yaw: 1.3, len: 1.9 };   // 석등 옆 풀밭에 누운 고양이
 export const GARDEN_BOUNDS = { xMin: -21, xMax: 21, zMin: 14.5, zMax: 47 };
 
+const BULDU_SPOT = { x: -9, z: 44 };   // buldu.js의 BULDU와 같은 자리
 const TOWER_SITES = [[12, 24.5], [14.6, 28], [12, 31.5], [14.6, 35]];
 const PER_TOWER = 16;
 const MAX_STONES = TOWER_SITES.length * PER_TOWER;
@@ -21,7 +22,7 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
   const rnd = seeded(2610);
   const r = (a, b) => a + rnd() * (b - a);
   const root = new THREE.Group(); scene.add(root);
-  const colliders = [[8.5, 19, 2.6], [CAT.x, CAT.z, 0.95, true]];
+  const colliders = [[8.5, 19, 2.6], [CAT.x, CAT.z, 0.95, true], [BULDU_SPOT.x, BULDU_SPOT.z, 3.1]];
   const lamb = (color, o = {}) => new THREE.MeshLambertMaterial({ color, ...o });
   const dummy = new THREE.Object3D();
 
