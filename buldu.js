@@ -1,4 +1,4 @@
-// 정원의 청동 불상: 법당 불상과 같은 3D 스캔을 크게 키워 청동빛으로 입힌다
+// 정원의 금동 불상: 법당 불상과 같은 3D 스캔을 크게 키워 금빛으로 입힌다
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 
@@ -6,8 +6,8 @@ export const BULDU = { x: -6, z: 58, yaw: 2.82, stand: { x: -1.5, z: 44.4 }, vie
 
 const HEIGHT = 17, PLINTH = 1.1;
 
-export function buildBuldu(scene, groundY) {
-  const root = new THREE.Group();
+export function buildBuldu(scene, groundY, getEnv) {
+  const root = new THREE.Group(), gilded = [];
   root.position.set(BULDU.x, groundY, BULDU.z);
   root.rotation.y = BULDU.yaw;
   scene.add(root);
@@ -24,14 +24,19 @@ export function buildBuldu(scene, groundY) {
     holder.scale.setScalar(HEIGHT / (bb.max.y - bb.min.y));
     holder.position.y = PLINTH;
     model.position.set(-c.x, -bb.min.y, -c.z);
+    const envMap = getEnv();
     model.traverse((o) => {
       if (!o.isMesh) return;
       o.material = o.material.clone();
-      o.material.color.set(0x8c8064);    // 금빛 질감 위에 곱해 청동빛으로 낮춘다
-      o.material.metalness = 0.25; o.material.roughness = 0.5;
-      o.material.emissive?.set(0x171208);
+      o.material.color.set(0xfff0a6);
+      o.material.metalness = 0.85; o.material.roughness = 0.36;
+      o.material.envMap = envMap;
+      o.material.emissive?.set(0x241806);
+      gilded.push(o.material);
     });
     holder.add(model); root.add(holder);
   });
+  // 밤에는 금빛 반사도 함께 잦아든다
+  root.userData.setLight = (k) => { for (const m of gilded) { m.envMapIntensity = 1.25 * k; m.emissiveIntensity = k; } };
   return root;
 }

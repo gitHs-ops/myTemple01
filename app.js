@@ -6,7 +6,7 @@ import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
 import { Cat } from './cats.js?v=1';
-import { BULDU, buildBuldu } from './buldu.js?v=3';
+import { BULDU, buildBuldu } from './buldu.js?v=4';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -340,7 +340,7 @@ mountainRing(150, 38, 34, 0x8aa49a, 7.7);
   for (let i = 0; i < COUNT; i++) {
     let x, z;
     do { const a = Math.random() * Math.PI * 2, r = rand(15, 76); x = Math.sin(a) * r; z = Math.cos(a) * r; }
-    while ((Math.abs(x) < 14 && z > -14 && z < 13) || (Math.abs(x) < 25 && z > 12 && z < 51) || Math.hypot(x + 6, z - 58) < 13 || (Math.abs(x) < 16 && z < -52));   // 청동 불두 자리는 비운다
+    while ((Math.abs(x) < 14 && z > -14 && z < 13) || (Math.abs(x) < 25 && z > 12 && z < 51) || Math.hypot(x + 6, z - 58) < 13 || (Math.abs(x) < 16 && z < -52));   // 금동 불상 자리는 비운다
     const sc = rand(1, 2.2);
     p.set(x, -0.9 + 1.1 * sc, z); s.set(sc, sc, sc); m.compose(p, q, s); tr.setMatrixAt(i, m);
     const broad = Math.random() < 0.34, c = pick(GREENS), shade = rand(0, 1);
@@ -567,6 +567,21 @@ let halo = null;
   });
   halo = mesh(new THREE.PlaneGeometry(3.2, 3.2), new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, depthWrite: false, toneMapped: false }), 0, hy + 0.05, -0.9, b);
   halo.renderOrder = -1;
+}
+// 정원 불상이 비치는 야외 빛: 법당 안의 붉은 반사 대신 맑은 금빛을 낸다
+function makeGardenEnv() {
+  const env = new THREE.Scene();
+  const tex = canvasTex(256, 128, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h);
+    gr.addColorStop(0, '#fffaf0'); gr.addColorStop(0.45, '#f7e6b8'); gr.addColorStop(0.6, '#c9a860'); gr.addColorStop(1, '#6b5a30');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  });
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  env.background = tex;
+  const pm = new THREE.PMREMGenerator(renderer);
+  const rt = pm.fromScene(env, 0.03);
+  pm.dispose(); tex.dispose();
+  return rt.texture;
 }
 // 실물 스캔 불상. 받지 못하면 위의 조립형 불상을 그대로 둔다.
 const BUDDHA = { height: 4.35, yaw: 0 };
@@ -1344,11 +1359,11 @@ function goToBuldu() {
     skyGoal = atMary ? { phi: 1.34, dist: 8.6, theta: 0 } : { phi: 1.42, dist: 18, theta: BULDU.viewTheta };
     atBuldu = true;
     updateSitBtn();
-    toast(atMary ? '성모상 앞에 왔습니다. 기도해 보세요' : '청동 불상 앞에 왔습니다. 합장해 보세요', 4000);
+    toast(atMary ? '성모상 앞에 왔습니다. 기도해 보세요' : '금동 불상 앞에 왔습니다. 합장해 보세요', 4000);
   });
   marker.position.set(x, heightAt(z) + 0.03, z); marker.visible = true; marker.scale.setScalar(1);
   updateSitBtn();
-  toast(atMary ? '성모상을 찾아갑니다' : '청동 불상을 찾아갑니다');
+  toast(atMary ? '성모상을 찾아갑니다' : '금동 불상을 찾아갑니다');
 }
 function goToCushion(i) {
   const c = cushions[i];
@@ -2440,6 +2455,7 @@ function frame(now) {
   towerTick(dt);
   speakerTick(dt, t);
   catsTick(dt, t);
+  bulduHead.userData.setLight(THREE.MathUtils.clamp((hemi.intensity - 0.7) / 0.7, 0.38, 1));
   starUni.time.value = t; starUni.ratio.value = pixelRatio;
   stepStarAnim(dt); updateConstellations(dt);
   if (!reduceMotion) catBreath.value = 0.007 * (0.5 + 0.5 * Math.sin(t * 2));
@@ -2526,7 +2542,7 @@ $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$(
 gardenSky = garden.setSky;
 cathedralNight = (n) => { cathedral.setNight(n); maryGarden.setNight(n); };
 maryGarden.setCandles(state.candles);
-const bulduHead = buildBuldu(scene, GROUND_Y);
+const bulduHead = buildBuldu(scene, GROUND_Y, makeGardenEnv);
 applyTime();
 applySeason();
 setInterval(() => { applyTime(); applySeason(); }, 60000);
