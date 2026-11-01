@@ -29,3 +29,6 @@ https://commons.wikimedia.org/wiki/File:October_rain_in_Nepal.ogg
 voice_count.mp3
 절 횟수 안내 음성. Supertone의 Supertonic 3 모델로 합성했습니다 (tools/render_voice.py).
 모델 라이선스: OpenRAIL-M (https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE)
+
+organ.mp3, choir.mp3
+녹음을 쓰지 않고 이 사이트에서 직접 합성했습니다 (tools/render_organ.py).

@@ -3,6 +3,7 @@ import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=10';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=7';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
+import { CATHEDRAL, buildCathedral } from './cathedral.js?v=1';
 import { BULDU, buildBuldu } from './buldu.js?v=2';
 
 const $ = (id) => document.getElementById(id);
@@ -266,6 +267,7 @@ const SKY = [
   { h: 21, top: '#0e1736', bot: '#25335c', fog: '#1f2b4c', hemi: 0.78, sun: 0.15, sunC: '#8fa6ff', glow: 1 },
   { h: 24, top: '#0b1430', bot: '#1f2c52', fog: '#1b2746', hemi: 0.75, sun: 0.15, sunC: '#8fa6ff', glow: 1 },
 ];
+let cathedralNight = null;
 let lanternGlow = 0, gardenSky = null, skyHour = null, realHour = 12;
 const lanternMats = [];
 const cA = new THREE.Color(), cB = new THREE.Color();
@@ -291,6 +293,7 @@ function applyTime() {
   stars.visible = milky.visible = nightOp > 0;
   lanternMats.forEach((m) => { m.emissiveIntensity = 0.28 + lanternGlow * 0.95; });
   gardenSky?.(skyUniforms.bottom.value, lanternGlow);
+  cathedralNight?.(lanternGlow);
 }
 
 /* ───────── 산·숲·마당 ───────── */
@@ -299,6 +302,7 @@ const ground = mesh(new THREE.CircleGeometry(420, 48), new THREE.MeshLambertMate
 ground.rotation.x = -Math.PI / 2;
 
 const mountainMats = [];
+const outdoors = new THREE.Group(); scene.add(outdoors);
 function mountainRing(radius, base, amp, color, seed) {
   const N = 96, pos = [], idx = [];
   for (let i = 0; i <= N; i++) {
@@ -312,7 +316,7 @@ function mountainRing(radius, base, amp, color, seed) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(idx); g.computeVertexNormals();
   const mat = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide }); mountainMats.push(mat);
-  scene.add(new THREE.Mesh(g, mat));
+  outdoors.add(new THREE.Mesh(g, mat));
 }
 mountainRing(78, 10, 18, 0x5d7f58, 1.2);
 mountainRing(112, 22, 26, 0x6c8a75, 4.1);
@@ -327,7 +331,7 @@ mountainRing(150, 38, 34, 0x8aa49a, 7.7);
   for (let i = 0; i < COUNT; i++) {
     let x, z;
     do { const a = Math.random() * Math.PI * 2, r = rand(15, 76); x = Math.sin(a) * r; z = Math.cos(a) * r; }
-    while ((Math.abs(x) < 14 && z > -14 && z < 13) || (Math.abs(x) < 25 && z > 12 && z < 51) || Math.hypot(x + 6, z - 58) < 13);   // 청동 불두 자리는 비운다
+    while ((Math.abs(x) < 14 && z > -14 && z < 13) || (Math.abs(x) < 25 && z > 12 && z < 51) || Math.hypot(x + 6, z - 58) < 13 || (Math.abs(x) < 16 && z < -52));   // 청동 불두 자리는 비운다
     const sc = rand(1, 2.2);
     p.set(x, -0.9 + 1.1 * sc, z); s.set(sc, sc, sc); m.compose(p, q, s); tr.setMatrixAt(i, m);
     const broad = Math.random() < 0.34, c = pick(GREENS), shade = rand(0, 1);
@@ -339,7 +343,7 @@ mountainRing(150, 38, 34, 0x8aa49a, 7.7);
       lf.setMatrixAt(i * 3 + t, m); lf.setColorAt(i * 3 + t, col.set(c).offsetHSL(0, 0, jitter));
     }
   }
-  scene.add(tr, lf); forest.leaf = lf;
+  outdoors.add(tr, lf); forest.leaf = lf;
 }
 
 /* ───────── 법당 건물 ───────── */
@@ -679,7 +683,15 @@ garden.seats.forEach((q) => {
   cushions.push(q);
 });
 garden.setStones(state.stones);
+const cathedral = buildCathedral({ scene, mesh, std, canvasTex, seatGroup: cushionGroup });
+cathedral.seats.forEach((q) => {
+  q.mesh.userData.cushion = cushions.length;
+  cushions.push(q);
+});
 let mode = 'temple';
+// 들어온 건물. 정원에서 돌아가는 곳이고 이웃이 앉는 곳이다
+const HALLS = { temple: { name: '법당', x: 0, z: 8.6, door: 14 }, cathedral: { name: '성당', x: CATHEDRAL.start.x, z: CATHEDRAL.start.z, door: CATHEDRAL.door } };
+let place = 'temple';
 
 /* ───────── 고양이 ───────── */
 // 실제 고양이 3D 스캔. 몸통의 높은 부분만 위아래로 움직여 숨 쉬게 한다
@@ -831,7 +843,7 @@ function makeMonk(name, mine = false) {
   };
 }
 const BOW_TIME = 6.4;
-const OBSTACLES = [[-4.5, 7.4, 0.8], [4.5, 7.4, 0.8], ...garden.colliders];
+const OBSTACLES = [[-4.5, 7.4, 0.8], [4.5, 7.4, 0.8], ...garden.colliders, ...cathedral.colliders];
 const POND_MARGIN = 0.55;
 function pushOut(c, dx, dz, sp) {
   const slide = (ax, az, al, R) => {
@@ -840,6 +852,8 @@ function pushOut(c, dx, dz, sp) {
     return [(ax / al) * R + tx * sgn * sp, (az / al) * R + tz * sgn * sp];
   };
   for (const [px, pz, R] of OBSTACLES) {
+    if (c.target?.cush != null && Math.hypot(px - c.target.x, pz - c.target.z) < R + 0.3) continue;
+    if (c.cushion != null) continue;
     const ax = c.x - px, az = c.z - pz, m = slide(ax, az, Math.hypot(ax, az), R);
     if (m) { c.x = px + m[0]; c.z = pz + m[1]; }
   }
@@ -985,7 +999,7 @@ function updateMonk(c, dt, t) {
       c.yawTo = Math.atan2(dx, dz);
       if (t - c.bestAt > GIVE_UP) giveUp();
     } else {
-      const speed = c.mine ? 3 : 2.1, sp = speed * dt, ox = c.x, oz = c.z;
+      const speed = c.walkSpeed || (c.mine ? 3 : 2.1), sp = speed * dt, ox = c.x, oz = c.z;
       const [wx, wz] = steerDir(c, dx / d, dz / d, d, t, speed);
       // 방향을 부드럽게 틀어 지그재그를 막는다
       const k = 1 - Math.exp(-9 * dt);
@@ -1025,7 +1039,8 @@ function updateMonk(c, dt, t) {
     down = smooth(0.38, 0.54, b) * (1 - smooth(0.68, 0.84, b));
     spread = smooth(0.1, 0.28, b) * (1 - smooth(0.84, 0.98, b));
     c.hapTo = 0; c.hapUntil = 0;
-    if (!c.bowHit && b > 0.54) { c.bowHit = true; if (c.mine) sound.moktak(0.75); }
+    if (place === 'cathedral') { spread = 0; down *= 0.22; c.hapTo = b < 0.9 ? 1 : 0; }
+    if (!c.bowHit && b > 0.54) { c.bowHit = true; if (c.mine) { if (place === 'cathedral') sound.bead(); else sound.moktak(0.75); } }
     if (b >= 1) { c.bowT = null; c.hapTo = 0; c.onBowDone?.(); }
   }
   c.hap = damp(c.hap, c.hapTo, 8, dt);
@@ -1117,7 +1132,7 @@ const usedNames = new Set();
 const uniqueName = () => { for (let i = 0; i < 40; i++) { const n = randomName(); if (!usedNames.has(n)) { usedNames.add(n); return n; } } return randomName(); };
 
 function addNpc(seated) {
-  const free = freeCushions('temple'); if (!free.length) return;
+  const free = freeCushions(place); if (!free.length) return;
   const { i } = pick(free);
   const name = uniqueName();
   const n = makeMonk(name);
@@ -1127,7 +1142,7 @@ function addNpc(seated) {
     n.x = cushions[i].x; n.z = cushions[i].z; n.cushion = i; cushions[i].by = n; n.sit = n.sitTo = 1;
     if (Math.random() < 0.4) n.bowT = Math.random() * 0.8;
   } else {
-    n.x = rand(-2.8, 2.8); n.z = 14; n.pop = 0.01;
+    n.x = rand(-2.8, 2.8); n.z = HALLS[place].door; n.pop = 0.01;
     setTarget(n, cushions[i].x, cushions[i].z, i);
   }
   npcs.push(n);
@@ -1135,7 +1150,7 @@ function addNpc(seated) {
 function leaveNpc(n) {
   if (n.leaving) return;
   n.leaving = true;
-  setTarget(n, rand(-2.8, 2.8), 14, null, () => { n.gone = true; });
+  setTarget(n, rand(-2.8, 2.8), HALLS[place].door, null, () => { n.gone = true; });
 }
 function disposeNpc(n) {
   scene.remove(n.root);
@@ -1153,10 +1168,10 @@ function npcTick(t) {
   for (const n of [...npcs]) {
     if (n.gone) { disposeNpc(n); continue; }
     if (n.pop < 1) n.pop = Math.min(1, n.pop + 0.03);
-    if (n.leaving) n.pop = n.z > 12.8 ? Math.max(0.02, (14 - n.z) / 1.2) : n.pop;
+    if (n.leaving) { const door = HALLS[place].door; n.pop = n.z > door - 1.2 ? Math.max(0.02, (door - n.z) / 1.2) : n.pop; }
     if (n.cushion == null || n.target || n.bowT != null) continue;
     if (t > n.nextAct) {
-      if (Math.random() < 0.72) startBow(n);
+      if (place !== 'cathedral' && Math.random() < 0.72) startBow(n);
       else { n.hapTo = 1; n.hapUntil = t + rand(6, 16); n.nextAct = t + rand(20, 60); }
     }
   }
@@ -1261,6 +1276,7 @@ function handleTap(cx, cy) {
 const ZONES = {
   temple: { xMin: -8.4, xMax: 8.4, zMin: -3.9, zMax: 11 },
   garden: GARDEN_BOUNDS,
+  cathedral: CATHEDRAL.zone,
 };
 function clampToZone(x, z) {
   const b = ZONES[mode];
@@ -1360,7 +1376,7 @@ function korNum(n) {
 }
 // 108까지는 통째로 녹음한 조각, 그 위는 낱말 조각을 잇는다
 function sayBows(n, finished = false) {
-  if (!state.voiceOn) return;
+  if (!state.voiceOn || place === 'cathedral') return;
   const keys = finished ? [...korNum(n), '배를 마쳤습니다'] : n <= 108 ? [String(n)] : [...korNum(n), '배'];
   sound.say(keys).catch(() => toast('안내 음성을 불러오지 못했습니다'));
 }
@@ -1379,7 +1395,7 @@ function toast(msg, ms = 2800) {
 }
 function updateHud() {
   const inGarden = mode === 'garden';
-  $('countLabel').textContent = inGarden ? '쌓은 돌' : vowGoal ? vowName(vowGoal) : '오늘 절';
+  $('countLabel').textContent = inGarden ? '쌓은 돌' : place === 'cathedral' ? '오늘 기도' : vowGoal ? vowName(vowGoal) : '오늘 절';
   $('countOf').hidden = inGarden; $('bowBarWrap').hidden = inGarden;
   $('stoneReset').hidden = !inGarden || !state.stones;
   $('countOf').textContent = `/ ${(vowGoal ?? 108).toLocaleString()}`;
@@ -1394,14 +1410,15 @@ function updateSitBtn() {
   $('btnSitLabel').textContent = seated ? '일어서기' : '앉기';
 }
 function doHap() {
+  if (skyBack) $('skyBtn').click();   // 하늘을 보는 중이면 돌아와서 합장한다
   if (player.target || player.bowT != null) return;
-  if (mode === 'temple') player.yawTo = Math.PI;
+  if (mode !== 'garden') player.yawTo = Math.PI;
   if (player.hapTo) { player.hapTo = 0; player.hapUntil = 0; return; }
   player.hapTo = 1; player.hapUntil = performance.now() / 1000 + 8; poseOff = false;
-  sound.moktak(0.35);
+  if (place === 'cathedral') sound.bead(); else sound.moktak(0.35);
 }
 function doBow() {
-  if (mode !== 'temple') return;
+  if (mode === 'garden') return;
   rollDay();
   if (!vowGoal) pendingVow = null;
   poseOff = false;
@@ -1443,7 +1460,7 @@ function onPlayerBowDone() {
   if (g) {
     if (n % 108 === 0) { sound.bell(0.5); toast(`${n.toLocaleString()}배를 올렸습니다`, 3000); }
   } else if (n % 108 === 0) {
-    sound.bell(); toast(`108배를 ${n / 108}번 마쳤습니다`, 5000);
+    sound.bell(); toast(place === 'cathedral' ? `기도 ${n}번을 드렸습니다` : `108배를 ${n / 108}번 마쳤습니다`, 5000);
     return;
   }
   if (autoBow) setTimeout(() => { if (autoBow) startBow(player); }, 350);
@@ -1482,6 +1499,8 @@ const MEDITATIONS = [
   { id: 'drone', name: '깊은 울림', desc: '끊기지 않고 낮게 이어지는 소리' },
   { id: 'breath', name: '호흡 안내', desc: '들숨 약 4초, 날숨 약 6초에 맞춘 소리' },
   { id: 'keshoe', name: '경쇠', desc: '32초에 한 번, 고요히 앉을 때' },
+  { id: 'organ', name: '오르간', desc: '천천히 이어지는 파이프 오르간 화음' },
+  { id: 'choir', name: '성가대 허밍', desc: '넓은 성당에 울리는 합창 화음' },
 ];
 const AMBIENTS = [
   { id: 'wind', name: '산바람과 풍경', desc: '실제 바람 녹음에 풍경이 가끔 울립니다' },
@@ -1582,7 +1601,7 @@ $('tabChant').onclick = () => soundTab('chant');
 $('tabMed').onclick = () => soundTab('med');
 $('tabAmb').onclick = () => soundTab('amb');
 $('btnChant').onclick = () => {
-  drawTracks(); drawAmbients(); soundTab('chant');
+  drawTracks(); drawAmbients(); soundTab(place === 'cathedral' ? 'med' : 'chant');
   ['volChant2', 'volChant3'].forEach((id) => { $(id).value = state.vol.chant; });
   $('volWind2').value = state.vol.wind;
   openModal('chantModal');
@@ -1672,6 +1691,57 @@ $('btnFeed').onclick = () => {
   updateSitBtn();
 };
 
+/* 탑돌기: 탑을 오른쪽에 두고 손을 모은 채 세 바퀴 돈다 */
+const TOWER = { x: 8.5, z: 19, R: 3.6 }, TOWER_ROUNDS = 3, TOWER_STEPS = 24;
+let tour = null;
+function stopTour() {
+  if (!tour) return;
+  tour = null;
+  player.walkSpeed = 0; player.hapTo = 0; player.hapUntil = 0;
+  $('btnTower').setAttribute('aria-pressed', 'false');
+}
+function tourStep() {
+  const a = tour.start - (tour.step / TOWER_STEPS) * Math.PI * 2;
+  const x = TOWER.x + Math.sin(a) * TOWER.R, z = TOWER.z + Math.cos(a) * TOWER.R;
+  setTarget(player, x, z);
+  player.freshTarget = tour.step === 0;
+  player.hapTo = 1; player.hapUntil = 0;
+  tour.wp = player.target;
+}
+function towerTick(dt) {
+  if (!tour) return;
+  if (keys.size || (player.target && player.target !== tour.wp)) { stopTour(); updateSitBtn(); return; }
+  if (!pointers.size) {
+    const out = Math.atan2(player.x - TOWER.x, player.z - TOWER.z);
+    orbit.theta += wrapAngle(out - orbit.theta) * (1 - Math.exp(-1.6 * dt));
+  }
+  if (player.target) return;
+  tour.step++;
+  if (tour.step % TOWER_STEPS === 0) {
+    const round = tour.step / TOWER_STEPS;
+    if (round >= TOWER_ROUNDS) {
+      stopTour();
+      player.yawTo = Math.atan2(TOWER.x - player.x, TOWER.z - player.z);
+      player.hapTo = 1; player.hapUntil = performance.now() / 1000 + 4; poseOff = false;
+      sound.bell(0.7); toast(`탑돌기 ${TOWER_ROUNDS}바퀴를 마쳤습니다`, 4000);
+      return;
+    }
+    sound.bead(); toast(`탑돌기 ${round}바퀴`);
+  }
+  tourStep();
+}
+$('btnTower').onclick = () => {
+  if (tour) { stopTour(); player.target = null; player.onArrive = null; updateSitBtn(); toast('탑돌기를 멈췄습니다'); return; }
+  if (skyBack) $('skyBtn').click();
+  stopAuto();
+  tour = { start: Math.atan2(player.x - TOWER.x, player.z - TOWER.z), step: 0, wp: null };
+  player.walkSpeed = 1.8;
+  $('btnTower').setAttribute('aria-pressed', 'true');
+  tourStep();
+  updateSitBtn();
+  toast(`탑을 오른쪽에 두고 ${TOWER_ROUNDS}바퀴 돕니다`);
+};
+
 /* 법당 ↔ 정원 */
 let switching = false, camSnap = false;
 function applyMode(next) {
@@ -1682,29 +1752,38 @@ function applyMode(next) {
   player.cushion = null; player.target = null; player.onArrive = null;
   player.bowT = null; player.sit = player.sitTo = 0; player.hapTo = 0; player.hapUntil = 0;
   placing = placingDrop = false; player.feedT = null; feedViewUntil = 0;
+  stopTour();
   if (stoneClearing) { stoneClearing = false; garden.setStones(0); }
   marker.visible = false; keys.clear();
-  player.x = 0; player.z = inGarden ? 16 : 8.6;
+  player.x = inGarden ? 0 : HALLS[next].x; player.z = inGarden ? 16 : HALLS[next].z;
   player.yaw = player.yawTo = inGarden ? 0 : Math.PI;
   orbit.theta = inGarden ? Math.PI : 0; orbit.phi = 1.22; orbit.dist = inGarden ? 9.5 : 8.2;
   camSnap = true;
-  ['btnBow', 'btnAuto'].forEach((id) => { $(id).hidden = inGarden; });
-  ['btnStone', 'btnFeed', 'seasonBtn', 'skyBtn', 'bulduBtn'].forEach((id) => { $(id).hidden = !inGarden; });
+  $('btnBow').hidden = inGarden; $('btnAuto').hidden = next !== 'temple';
+  const church = next === 'cathedral' || (inGarden && place === 'cathedral');
+  $('btnBowLabel').textContent = place === 'cathedral' ? '무릎 꿇기' : '절하기';
+  $('btnHapLabel').textContent = place === 'cathedral' ? '기도' : '합장';
+  $('btnBeadsLabel').textContent = church ? '묵주' : '염주';
+  $('beadsTitle').textContent = church ? '108묵주' : '108염주';
+  $('tabChant').hidden = church;
+  cathedral.setActive(next === 'cathedral');
+  outdoors.visible = next !== 'cathedral';
+  ['btnStone', 'btnFeed', 'btnTower', 'seasonBtn', 'skyBtn', 'bulduBtn'].forEach((id) => { $(id).hidden = !inGarden; });
   $('ambBtn').classList.toggle('below', inGarden);
   skyGoal = null; skyBack = null; $('skyLabel').textContent = '하늘 보기';
   setStarMode(false, true);
   leafMesh.visible = !inGarden;
   garden.setActive(inGarden);
-  $('modeLabel').textContent = inGarden ? '법당으로' : '정원으로';
+  $('modeLabel').textContent = inGarden ? `${HALLS[place].name}으로` : '정원으로';
   $('modeIconLeaf').style.display = inGarden ? 'none' : ''; $('modeIconHall').style.display = inGarden ? '' : 'none';
   sound.setGarden(inGarden);
   updateHud(); updateSitBtn();
-  toast(inGarden ? '정원입니다. 연못가 돌에 앉아 쉬어 가세요' : '법당으로 돌아왔습니다');
+  toast(inGarden ? '정원입니다. 연못가 돌에 앉아 쉬어 가세요' : next === 'cathedral' ? '성당입니다. 긴 의자에 앉아 쉬어 가세요' : '법당으로 돌아왔습니다');
 }
 $('modeBtn').onclick = () => {
   if (switching) return;
   switching = true;
-  const fade = $('fade'), next = mode === 'garden' ? 'temple' : 'garden', wait = reduceMotion ? 0 : 420;
+  const fade = $('fade'), next = mode === 'garden' ? place : 'garden', wait = reduceMotion ? 0 : 420;
   fade.classList.add('on');
   setTimeout(() => {
     applyMode(next);
@@ -1904,9 +1983,9 @@ function yebulTick() {
   const d = new Date(), h = d.getHours(), m = d.getMinutes(), id = `${today()}-${h}`;
   if ((h === 6 || h === 18) && m < 2 && lastYebul !== id && entered) {
     lastYebul = id;
-    toast(h === 6 ? '아침 예불이 시작됩니다' : '저녁 예불이 시작됩니다', 6000);
+    toast(place === 'cathedral' ? (h === 6 ? '아침 종이 울립니다' : '저녁 종이 울립니다') : h === 6 ? '아침 예불이 시작됩니다' : '저녁 예불이 시작됩니다', 6000);
     sound.bell(); setTimeout(() => sound.bell(), 7000); setTimeout(() => sound.bell(), 14000);
-    if (!sound.chantOn) { setChant(true); chantUntil = Date.now() + 600000; }
+    if (place === 'temple' && !sound.chantOn) { setChant(true); chantUntil = Date.now() + 600000; }
     npcs.forEach((n) => { if (n.cushion != null) n.nextAct = performance.now() / 1000 + rand(0, 8); });
   }
   if (chantUntil && Date.now() > chantUntil) { chantUntil = 0; setChant(false); }
@@ -1928,11 +2007,12 @@ let feedViewK = 0, feedViewUntil = 0, feedTheta = 0;   // 먹이 줄 때는 어�
 let poseK = 0, poseOff = false, atBuldu = false, bulduLift = 0, bulduBack = null;
 const POSE_TURN = 1.7, POSE_TURN_BOW = 1.95, POSE_DIST = 4.8, FEED_TURN = 2.45, FEED_DIST = 6.4, FEED_PHI = 0.92;
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const VIEW_BLOCKERS = [...OBSTACLES, [-9, 7.4, 0.45], [9, 7.4, 0.45]];
 function viewFit(x, z, theta, reach) {
   const ox = reach * Math.sin(theta), oz = reach * Math.cos(theta);
   for (let k = 3; k <= 12; k++) {
     const s = k / 12, px = x + ox * s, pz = z + oz * s;
-    for (const [cx, cz, R, low] of OBSTACLES) {
+    for (const [cx, cz, R, low] of VIEW_BLOCKERS) {
       if (!low && Math.hypot(px - cx, pz - cz) < R + 0.3) return Math.max(0.3, (k - 1) / 12);
     }
   }
@@ -1957,10 +2037,10 @@ function updateCamera(dt) {
   if (player) camTarget.set(snap ? player.x : damp(camTarget.x, player.x, 5, dt), snap ? groundY + 1.15 : damp(camTarget.y, groundY + 1.15, 5, dt), snap ? player.z : damp(camTarget.z, player.z, 5, dt));
   // 합장과 절은 앞모습이라 뒤에서는 손이 가려진다. 그동안 카메라를 옆으로 돌린다
   const feedView = player && performance.now() / 1000 < feedViewUntil && player.hapTo !== 1 && player.sitTo !== 1;
-  const posing = player && !poseOff && !skyBack && !player.target && player.walk < 0.2 && (player.bowT != null || autoBow || player.hapTo === 1 || player.feedT != null || feedView);
+  const posing = player && !poseOff && !skyBack && !atBuldu && !player.target && player.walk < 0.2 && (player.bowT != null || autoBow || player.hapTo === 1 || player.feedT != null || feedView);
   poseK = snap ? 0 : damp(poseK, posing ? 1 : 0, 2, dt);
   feedViewK = snap ? 0 : damp(feedViewK, posing && feedView ? 1 : 0, 2, dt);
-  const camPhi = orbit.phi + (FEED_PHI - orbit.phi) * feedViewK, sinP = Math.sin(camPhi);
+  const camPhi = orbit.phi + (Math.min(orbit.phi, 1.32) - orbit.phi) * poseK * (1 - feedViewK) + (FEED_PHI - orbit.phi) * feedViewK, sinP = Math.sin(camPhi);
   let camTheta = orbit.theta;
   if (player && poseK > 0.001) {
     const front = feedView ? feedTheta : player.yawTo;
@@ -1971,21 +2051,22 @@ function updateCamera(dt) {
   const baseDist = orbit.dist + (Math.min(orbit.dist, POSE_DIST) - orbit.dist) * poseK * (1 - feedViewK) + (FEED_DIST - orbit.dist) * feedViewK;
   // 정원에서는 탑이나 나무에 시야가 막히면 카메라를 앞으로 당긴다
   let fit = 1;
-  if ((mode === 'garden' || poseK > 0.01) && !atBuldu) {
+  if ((mode !== 'temple' || poseK > 0.01) && !atBuldu) {
     fit = viewFit(camTarget.x, camTarget.z, camTheta, baseDist * sinP);
   }
   camFit = snap ? fit : damp(camFit, fit, fit < camFit ? 9 : 2.5, dt);
   const camDist = baseDist * camFit;
   camPos.set(
     camTarget.x + camDist * sinP * Math.sin(camTheta),
-    clamp(camTarget.y + camDist * Math.cos(camPhi), groundY + 0.5, mode === 'garden' ? 13 : 6.4),
+    clamp(camTarget.y + camDist * Math.cos(camPhi), groundY + 0.5, mode === 'garden' ? 13 : mode === 'cathedral' ? CATHEDRAL.cam.yMax : 6.4),
     camTarget.z + camDist * sinP * Math.cos(camTheta)
   );
+  if (mode === 'cathedral') { const b = CATHEDRAL.cam; camPos.x = clamp(camPos.x, b.xMin, b.xMax); camPos.z = clamp(camPos.z, b.zMin, b.zMax); }
   camera.position.copy(camPos);
   skyLookK = snap ? 0 : damp(skyLookK, skyBack ? 1 : 0, 2.4, dt);
   if (atBuldu && (player.target || keys.size)) { atBuldu = false; skyGoal = bulduBack; }
   bulduLift = snap ? 0 : damp(bulduLift, atBuldu ? 4.8 : 0, 2.4, dt);   // 큰 불두가 화면에 들어오게 올려다본다
-  const lookY = camTarget.y + 0.75 - 1.1 * poseK + bulduLift + Math.max(0, orbit.phi - 1.5) * 3.2;
+  const lookY = camTarget.y + 0.75 - 1.1 * poseK + bulduLift + Math.max(0, camPhi - 1.5) * 3.2;
   if (skyLookK > 0.001) {
     const ce = Math.cos(skyEl);   // 카메라에서 하늘 쪽으로 향하는 점으로 시선을 옮긴다
     const fx = camPos.x - Math.sin(camTheta) * ce * 10, fy = camPos.y + Math.sin(skyEl) * 10, fz = camPos.z - Math.cos(camTheta) * ce * 10;
@@ -2008,6 +2089,8 @@ function frame(now) {
   npcTick(t);
   strollerTick(t);
   garden.update(t, dt);
+  if (mode === 'cathedral') cathedral.update(t);
+  towerTick(dt);
   starUni.time.value = t; starUni.ratio.value = pixelRatio;
   stepStarAnim(dt); updateConstellations(dt);
   if (!reduceMotion) catBreath.value = 0.007 * (0.5 + 0.5 * Math.sin(t * 2));
@@ -2048,8 +2131,18 @@ function frame(now) {
 $('nameInput').value = state.name || randomName();
 $('rerollName').onclick = () => { $('nameInput').value = randomName(); };
 
-function enter() {
+function enter(kind = 'temple') {
   const name = $('nameInput').value.trim().slice(0, 10) || randomName();
+  if (kind === 'cathedral') {
+    // 수도복 차림으로 바꾸고 이웃을 성당 의자로 옮긴다
+    place = kind;
+    [0x3a2d26, 0x2e2826, 0x44352a, 0x332b28].forEach((c, i) => M.robes[i].color.set(c));
+    M.sash.color.set(0xe9e2d0);
+    const count = npcs.length;
+    [...npcs].forEach(disposeNpc);
+    cushions.forEach((q) => { q.by = null; });
+    for (let i = 0; i < count; i++) addNpc(true);
+  }
   state.name = name; rollDay(); save();
   usedNames.add(name);
   player = makeMonk(name, true);
@@ -2065,12 +2158,15 @@ function enter() {
   const gate = $('gate');
   gate.classList.add('leaving'); setTimeout(() => { gate.hidden = true; }, 400);
   sound.bell(0.6);
+  if (kind === 'cathedral') applyMode('cathedral');
   canvas.focus?.();
 }
-$('enterBtn').onclick = enter;
-$('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('enterBtn').disabled) enter(); });
+$('enterBtn').onclick = () => enter('temple');
+$('enterCathBtn').onclick = () => enter('cathedral');
+$('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('enterBtn').disabled) enter('temple'); });
 
 gardenSky = garden.setSky;
+cathedralNight = cathedral.setNight;
 const bulduHead = buildBuldu(scene, GROUND_Y);
 applyTime();
 applySeason();
@@ -2086,7 +2182,8 @@ for (let i = 0; i < state.npc; i++) addNpc(true);
 requestAnimationFrame(frame);
 $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
+$('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => { const q = cushions[i]; setTarget(player, q.x, q.z, i); }, get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => { const q = cushions[i]; setTarget(player, q.x, q.z, i); }, get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
