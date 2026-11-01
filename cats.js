@@ -220,11 +220,14 @@ export class Cat {
     if (far) { this.x = near[0]; this.z = near[1]; this.scale = 0; this.yaw = Math.atan2(food.x - this.x, food.z - this.z); }
     this.route = [[this.x, this.z], [food.x, food.z]]; this.i = 1;
     this.food = food; this.eating = false; this.eatTo = 0;
-    this.pause = 0; this.sitTo = 0; this.bestD = Infinity; this.bestAt = performance.now() / 1000; this.trips++;
+    this.pause = 0; this.sitTo = 0; this.bestD = Infinity; this.bestAt = this.clock || 0; this.trips++;
     this.root.visible = true;
   }
 
-  update(dt, t, env) {
+  update(dt, env) {
+    // 느린 기기에서도 걸음과 시간이 어긋나지 않게 자기 시계로 잰다
+    this.clock = (this.clock || 0) + dt;
+    const t = this.clock;
     if (!this.route) {
       this.wait -= dt;
       if (this.wait > 0) return;

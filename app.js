@@ -5,7 +5,7 @@ import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
-import { Cat, makeDish } from './cats.js?v=3';
+import { Cat, makeDish } from './cats.js?v=4';
 import { BULDU, buildBuldu } from './buldu.js?v=5';
 
 const $ = (id) => document.getElementById(id);
@@ -2216,7 +2216,7 @@ const catEnv = {
 function catsReset() { catDish.visible = false; dishUntil = 0; strays.forEach((c, i) => c.hide(i === 0 ? catRand(3, 10) : catRand(14, 30) + (i - 1) * 14)); }
 function catsTick(dt, t) {
   if (mode !== 'garden' && mode !== 'mary') return;
-  strays.forEach((c) => c.update(dt, t, catEnv));
+  strays.forEach((c) => c.update(dt, catEnv));
   if (catDish.visible && t > dishUntil && !strays.some((c) => c.food)) {
     const k = catDish.scale.x - dt * 1.5;
     if (k <= 0.02) catDish.visible = false; else catDish.scale.setScalar(k);
@@ -2226,16 +2226,53 @@ function catsTick(dt, t) {
 /* 법문과 말씀: 미리 쓴 글을 합성 음성으로 들려주고 자막을 보여 준다 */
 const TALKS = {
   temple: [
-    { id: 'monk_anger', name: '화가 날 때', desc: '두 번째 화살 이야기 · 약 1분 30초' },
-    { id: 'monk_letgo', name: '내려놓는다는 것', desc: '뗏목의 비유 · 약 1분 30초' },
-    { id: 'monk_breath', name: '이 숨 하나', desc: '함께 호흡을 바라봅니다 · 약 1분 20초' },
+    { id: 'monk_anger', name: '화가 날 때', desc: '두 번째 화살 이야기' },
+    { id: 'monk_letgo', name: '내려놓는다는 것', desc: '뗏목의 비유' },
+    { id: 'monk_breath', name: '이 숨 하나', desc: '함께 호흡을 바라봅니다' },
+    { id: 'monk_mustard', name: '겨자씨 한 줌', desc: '소중한 사람을 잃은 분께' },
+    { id: 'monk_elephant', name: '코끼리를 만진 사람들', desc: '내가 아는 것은 어디까지일까' },
+    { id: 'monk_teacup', name: '넘치는 찻잔', desc: '마음을 비운다는 것' },
+    { id: 'monk_lotus', name: '진흙 속의 연꽃', desc: '고단한 자리에서' },
+    { id: 'monk_wonhyo', name: '원효 스님의 물 한 모금', desc: '모든 것은 마음이 짓는다' },
+    { id: 'monk_strings', name: '거문고 줄', desc: '너무 애쓰고 있는 분께' },
+    { id: 'monk_meal', name: '밥 한 그릇', desc: '공양의 마음' },
+    { id: 'monk_change', name: '이것도 지나간다', desc: '모든 것은 변합니다' },
+    { id: 'monk_metta', name: '모두가 편안하기를', desc: '함께 자비의 마음을 냅니다' },
   ],
   cathedral: [
-    { id: 'priest_burden', name: '무거운 짐을 진 사람들에게', desc: '마태오 복음 11장 · 약 1분 20초' },
-    { id: 'priest_son', name: '되찾은 아들', desc: '루카 복음 15장 · 약 1분 30초' },
-    { id: 'priest_forgive', name: '일흔일곱 번의 용서', desc: '마태오 복음 18장 · 약 1분 30초' },
+    { id: 'priest_burden', name: '무거운 짐을 진 사람들에게', desc: '마태오 복음 11장' },
+    { id: 'priest_son', name: '되찾은 아들', desc: '루카 복음 15장' },
+    { id: 'priest_forgive', name: '일흔일곱 번의 용서', desc: '마태오 복음 18장' },
+    { id: 'priest_lilies', name: '내일을 걱정하지 마라', desc: '마태오 복음 6장' },
+    { id: 'priest_sheep', name: '잃어버린 양 한 마리', desc: '루카 복음 15장' },
+    { id: 'priest_martha', name: '마르타야, 마르타야', desc: '루카 복음 10장' },
+    { id: 'priest_emmaus', name: '엠마오로 가는 길', desc: '루카 복음 24장' },
+    { id: 'priest_storm', name: '풍랑 속의 배', desc: '마르코 복음 4장' },
+    { id: 'priest_samaritan', name: '누가 이웃이 되어 주었느냐', desc: '루카 복음 10장' },
+    { id: 'priest_widow', name: '렙톤 두 닢', desc: '마르코 복음 12장' },
+    { id: 'priest_love', name: '사랑은 참고 기다립니다', desc: '코린토 1서 13장' },
+    { id: 'priest_zacchaeus', name: '오늘은 네 집에', desc: '루카 복음 19장' },
   ],
 };
+/* 오늘의 말씀: 날짜로 섞어 그날은 같은 세 편을 보여 주고, 다 돌 때까지 겹치지 않게 날마다 바꾼다 */
+const TALKS_PER_DAY = 3;
+const dayNumber = () => { const d = new Date(); return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000); };
+function shuffledTalks(where, seed) {
+  const list = [...TALKS[where]];
+  let x = (seed * 2654435761 + (where === 'temple' ? 17 : 91)) >>> 0;
+  for (let i = list.length - 1; i > 0; i--) {
+    x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+    const j = (x >>> 8) % (i + 1);
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+function talksFor(where, day, page = 0) {
+  const days = Math.floor(TALKS[where].length / TALKS_PER_DAY), order = shuffledTalks(where, Math.floor(day / days));
+  const start = ((day % days) + page) % days * TALKS_PER_DAY;
+  return order.slice(start, start + TALKS_PER_DAY);
+}
+let talkPage = 0;
 const TALK_NAME = { temple: { who: '스님', verb: '법문' }, cathedral: { who: '신부님', verb: '말씀' } };
 let talk = null, speaker = null;
 function makeSpeaker() {
@@ -2333,12 +2370,17 @@ async function startTalk(id) {
 let talkToken = null;
 function openTalks() {
   const { who, verb } = TALK_NAME[place];
-  $('talkTitle').textContent = `${who} ${verb} 듣기`;
-  $('talkList').textContent = '';
-  fillList('talkList', TALKS[place], (id) => { closeModals(); startTalk(id); });
-  markList('talkList', talk?.id ?? null, (id, on) => (on ? '듣는 중' : ''));
+  $('talkTitle').textContent = `오늘의 ${who} ${verb}`;
+  $('talkMore').textContent = `다른 ${verb} 보기`;
+  drawTalks();
   openModal('talkModal');
 }
+function drawTalks() {
+  $('talkList').textContent = '';
+  fillList('talkList', talksFor(place, dayNumber(), talkPage), (id) => { closeModals(); startTalk(id); });
+  markList('talkList', talk?.id ?? null, (id, on) => (on ? '듣는 중' : ''));
+}
+$('talkMore').onclick = () => { talkPage++; drawTalks(); };
 $('btnTalk').onclick = openTalks;
 $('talkPause').onclick = () => {
   if (!talk) return;
@@ -2715,5 +2757,5 @@ $('enterBtn').textContent = '법당에 들어가기';
 $('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, strays, tourMates, forest, catDish, callCatsToDish, get zoomGoal() { return zoomGoal; }, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, talksFor, TALKS, dayNumber, strays, tourMates, forest, catDish, callCatsToDish, get zoomGoal() { return zoomGoal; }, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
