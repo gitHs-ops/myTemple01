@@ -5,8 +5,118 @@ const COATS = [
   { base: '#8f8d88', stripe: '#3f3d3b', belly: '#e9e4da', ear: '#d9a6a0', eye: 0x8fbf4a },   // 회색 줄무늬
   { base: '#d98c3f', stripe: '#a55a1e', belly: '#f6e6cc', ear: '#eeb4a4', eye: 0xc9b23a },   // 치즈 줄무늬
 ];
+// 사진 속 긴 털 흰 고양이: 납작한 얼굴, 풍성한 가슴털과 꼬리
+const WHITE = { fluffy: true, tilt: 0.5, tailUp: -1.15, tailCurl: 0.2 };
 const damp = (a, b, k, dt) => a + (b - a) * (1 - Math.exp(-k * dt));
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+// 긴 털: 같은 몸을 겉으로 조금씩 부풀린 껍질을 겹치고, 껍질마다 털 끝만 남겨 보송하게 만든다
+const FUR_SHELLS = 12;
+let furTex = null;
+function strandTexture() {
+  if (furTex) return furTex;
+  const n = 64, data = new Uint8Array(n * n * 4);
+  for (let i = 0; i < n * n; i++) { const v = 40 + Math.random() * 215; data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = v; data[i * 4 + 3] = 255; }
+  furTex = new THREE.DataTexture(data, n, n);
+  furTex.wrapS = furTex.wrapT = THREE.RepeatWrapping;
+  furTex.magFilter = THREE.NearestFilter; furTex.minFilter = THREE.LinearFilter;
+  furTex.needsUpdate = true;
+  return furTex;
+}
+function furMaterial(color, o) {
+  const mat = new THREE.MeshLambertMaterial({ color, emissive: 0x5c5b57 });
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.furTex = { value: strandTexture() };
+    sh.uniforms.furLen = { value: o.len };
+    sh.uniforms.furFace = { value: o.face || 0 };
+    sh.uniforms.furLay = { value: new THREE.Vector3(...(o.lay || [0, -0.03, -0.04])) };
+    sh.uniforms.furUv = { value: new THREE.Vector2(...(o.uv || [5, 2.5])) };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+        uniform float furLen; uniform float furFace; uniform vec3 furLay; uniform vec2 furUv;
+        varying float vShell; varying vec2 vFurUv;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vShell = (float(gl_InstanceID) + 1.0) / ${FUR_SHELLS}.0;
+        vFurUv = uv * furUv;
+        transformed += normal * furLen * (1.0 - furFace * smoothstep(0.45, 0.8, normal.z)) * vShell;
+        transformed += furLay * vShell * vShell;`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform sampler2D furTex; varying float vShell; varying vec2 vFurUv;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        if (texture2D(furTex, vFurUv).r < vShell) discard;
+        diffuseColor.rgb *= mix(0.74, 1.04, vShell);`);
+  };
+  mat.customProgramCacheKey = () => 'catfur';
+  return mat;
+}
+function addFur(base, o = {}) {
+  const shells = new THREE.InstancedMesh(base.geometry, furMaterial(o.color ?? base.material.color, { len: 0.07, ...o }), FUR_SHELLS);
+  const one = new THREE.Matrix4();
+  for (let i = 0; i < FUR_SHELLS; i++) shells.setMatrixAt(i, one);
+  shells.frustumCulled = false;
+  base.add(shells);
+  return base;
+}
+
+function buildFluffy({ mesh, std }) {
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  body.position.y = 0.5;
+  const fur = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x3a3936 });
+  const cream = new THREE.MeshLambertMaterial({ color: 0xf5e8d4, emissive: 0x3a362f });
+  const pink = std(new THREE.Color('#eeb7b4'), { roughness: 0.9 });
+  const ball = (r, w = 14, h = 10) => new THREE.SphereGeometry(r, w, h);
+
+  addFur(mesh(ball(1, 18, 12).scale(0.3, 0.31, 0.58), fur, 0, 0.04, -0.02, body), { len: 0.11, lay: [0, -0.05, -0.08], uv: [7, 4] });
+  const chest = addFur(mesh(ball(0.26), cream, 0, -0.02, 0.33, body), { len: 0.13, color: 0xfff6e8, lay: [0, -0.09, 0.015] }); chest.scale.set(1, 1.12, 0.9);
+  addFur(mesh(ball(0.28), fur, 0, 0.03, -0.33, body), { len: 0.12, lay: [0, -0.08, -0.05] });
+
+  // 머리: 둥글고 납작한 얼굴. 얼굴 쪽 털은 짧고 볼과 뒤통수 털은 길다
+  const head = new THREE.Group(); head.position.set(0, 0.25, 0.54); body.add(head);
+  const skull = addFur(mesh(ball(0.225, 18, 14), fur, 0, 0, 0, head), { len: 0.075, face: 0.72, color: 0xfffaf0, lay: [0, -0.012, -0.03], uv: [6, 3] }); skull.scale.set(1.12, 0.98, 0.86);
+  [-1, 1].forEach((s) => { addFur(mesh(ball(0.1, 12, 9), fur, s * 0.135, -0.085, 0.07, head), { len: 0.06, lay: [s * 0.02, -0.03, -0.02], uv: [3, 1.5] }); });
+  [-1, 1].forEach((s) => {
+    const e = mesh(new THREE.ConeGeometry(0.082, 0.15, 12), fur, s * 0.165, 0.215, -0.015, head); e.rotation.set(-0.05, 0, s * -0.42); e.scale.z = 0.55;
+    const i = mesh(new THREE.ConeGeometry(0.056, 0.11, 10), pink, s * 0.163, 0.207, 0.018, head); i.rotation.set(-0.05, 0, s * -0.42); i.scale.z = 0.3;
+  });
+  const muzzle = addFur(mesh(ball(0.07, 12, 9), cream, 0, -0.078, 0.185, head), { len: 0.016, color: 0xfffbf2, lay: [0, 0, 0], uv: [2, 1] }); muzzle.scale.set(1.2, 0.72, 0.62);
+  const nose = mesh(ball(0.022, 8, 6), std(0xe88f9c), 0, -0.048, 0.238, head); nose.scale.set(1.15, 0.72, 0.5);
+  const lip = mesh(new THREE.BoxGeometry(0.006, 0.026, 0.006), std(0xc98a8c), 0, -0.076, 0.238, head); lip.rotation.x = 0.1;
+  const eye = std(0x8d8a45, { roughness: 0.2 }), pupil = std(0x15120d, { roughness: 0.15 }), shine = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const white = new THREE.MeshBasicMaterial({ color: 0xf4f2ec });
+  [-1, 1].forEach((s) => {
+    const a = mesh(ball(0.053), eye, s * 0.098, 0.022, 0.19, head); a.scale.z = 0.55;
+    const b = mesh(ball(0.035, 12, 8), pupil, s * 0.098, 0.022, 0.212, head); b.scale.z = 0.5;
+    mesh(ball(0.009, 6, 5), shine, s * 0.098 + 0.012, 0.04, 0.228, head);
+    for (const k of [-1, 0, 1]) {
+      const w = mesh(new THREE.CylinderGeometry(0.0022, 0.0022, 0.3, 3), white, s * 0.2, -0.08 + k * 0.016, 0.17, head);
+      w.rotation.z = s * (Math.PI / 2 + k * 0.17 + 0.1);
+    }
+  });
+
+  // 굵고 짧은 다리와 털 많은 발
+  const legGeo = new THREE.CapsuleGeometry(0.075, 0.24, 4, 10), pawGeo = ball(0.092, 12, 9);
+  const legs = [[-0.145, 0.33, 0], [0.145, 0.33, Math.PI], [-0.155, -0.34, Math.PI], [0.155, -0.34, 0]].map(([x, z, ph]) => {
+    const pivot = new THREE.Group(); pivot.position.set(x, -0.08, z); body.add(pivot);
+    addFur(mesh(legGeo, fur, 0, -0.17, 0, pivot), { len: 0.05, lay: [0, -0.02, -0.01], uv: [3, 3] });
+    const paw = addFur(mesh(pawGeo, fur, 0, -0.35, 0.03, pivot), { len: 0.028, lay: [0, 0, 0.01], uv: [2.5, 1.2] }); paw.scale.set(0.95, 0.56, 1.25);
+    return { pivot, ph, front: z > 0 };
+  });
+
+  // 풍성한 꼬리
+  const tail = [];
+  let parent = new THREE.Group(); parent.position.set(0, 0.16, -0.7); body.add(parent);
+  const radii = [0.085, 0.1, 0.105, 0.095, 0.08, 0.055];
+  for (let i = 0; i < 6; i++) {
+    const g = new THREE.Group();
+    if (i) g.position.y = 0.17;
+    parent.add(g);
+    const r = radii[i];
+    const seg = addFur(mesh(ball(r, 10, 8), fur, 0, 0.085, 0, g), { len: 0.075 + r * 0.45, lay: [0, 0.03, -0.01], uv: [3, 2] }); seg.scale.y = 1.6;
+    tail.push(g); parent = g;
+  }
+  return { root, body, head, legs, tail };
+}
 
 function buildCat(coat, { mesh, std, canvasTex }) {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
@@ -75,9 +185,19 @@ function buildCat(coat, { mesh, std, canvasTex }) {
   return { root, body, head, legs, tail };
 }
 
+// 고양이 밥그릇
+export function makeDish({ mesh, std }, scene) {
+  const g = new THREE.Group();
+  mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.085, 22), std(0xd9d2c3, { roughness: 0.45 }), 0, 0.045, 0, g);
+  const food = mesh(new THREE.SphereGeometry(0.165, 16, 8), std(0x9a6a3c, { roughness: 0.95 }), 0, 0.075, 0, g); food.scale.y = 0.22;
+  g.visible = false; scene.add(g);
+  return g;
+}
+
 export class Cat {
   constructor(coatIdx, kit, firstWait) {
-    Object.assign(this, buildCat(COATS[coatIdx], kit));
+    this.coat = coatIdx === 2 ? WHITE : COATS[coatIdx];
+    Object.assign(this, this.coat.fluffy ? buildFluffy(kit) : buildCat(this.coat, kit));
     this.root.visible = false; kit.scene.add(this.root);
     const shadowTex = kit.canvasTex(64, 64, (g, w) => {
       const r = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
@@ -86,11 +206,22 @@ export class Cat {
     });
     const blob = kit.mesh(new THREE.PlaneGeometry(0.85, 1.55), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }), 0, 0.012, 0, this.root);
     blob.rotation.x = -Math.PI / 2;
-    this.wait = firstWait; this.walkK = 0; this.sitK = 0; this.phase = Math.random() * 6; this.scale = 0; this.route = null; this.trips = 0;
+    this.wait = firstWait; this.eatK = 0; this.eatTo = 0; this.food = null; this.eating = false; this.walkK = 0; this.sitK = 0; this.phase = Math.random() * 6; this.scale = 0; this.route = null; this.trips = 0;
   }
 
   hide(wait) {
     this.route = null; this.root.visible = false; this.wait = wait; this.pause = 0;
+    this.food = null; this.eating = false; this.eatTo = 0; this.eatK = 0;
+  }
+
+  // 밥그릇으로 불러온다. 멀리 있거나 숨어 있으면 근처에서 나타난다
+  callFood(food, near) {
+    const far = !this.route || Math.hypot(this.x - food.x, this.z - food.z) > 11;
+    if (far) { this.x = near[0]; this.z = near[1]; this.scale = 0; this.yaw = Math.atan2(food.x - this.x, food.z - this.z); }
+    this.route = [[this.x, this.z], [food.x, food.z]]; this.i = 1;
+    this.food = food; this.eating = false; this.eatTo = 0;
+    this.pause = 0; this.sitTo = 0; this.bestD = Infinity; this.bestAt = performance.now() / 1000; this.trips++;
+    this.root.visible = true;
   }
 
   update(dt, t, env) {
@@ -107,20 +238,32 @@ export class Cat {
     const [wx, wz] = this.route[this.i], last = this.i === this.route.length - 1;
     const dx = wx - this.x, dz = wz - this.z, d = Math.hypot(dx, dz);
     let moving = 0;
-    if (this.pause > 0) {
+    const running = this.food && !this.eating;
+    if (this.eating) {
+      this.yaw += wrap(Math.atan2(this.food.dx - this.x, this.food.dz - this.z) - this.yaw) * (1 - Math.exp(-6 * dt));
+      if (t > this.food.until) {
+        this.eating = false; this.food = null; this.eatTo = 0;
+        this.route = [[this.x, this.z], env.exit()]; this.i = 1; this.bestD = Infinity; this.bestAt = t;
+      }
+    } else if (this.eatK > 0.1) {
+      // 고개를 드는 중
+    } else if (this.pause > 0) {
       this.pause -= dt;
       // 사람이 바짝 다가오면 일어나 자리를 뜬다
       if (env.people().some((p) => Math.hypot(p.x - this.x, p.z - this.z) < 1.3)) this.pause = 0;
       if (this.pause <= 0) this.sitTo = 0;
     } else if (this.sitK > 0.1) {
       // 일어나는 중
-    } else if (d < 0.5) {
-      if (last) { this.hide(env.nextWait()); return; }
+    } else if (d < (running ? 0.16 : 0.5)) {
+      if (running) { this.eating = true; this.eatTo = 1; }
+      else if (last) { this.hide(env.nextWait()); return; }
+      else {
       this.i++; this.bestD = Infinity; this.bestAt = t;
       if (Math.random() < 0.5) {
         this.pause = 1.5 + Math.random() * 5;
         this.sitTo = this.pause > 2.5 ? 1 : 0;
         this.lookAt = (Math.random() - 0.5) * 1.6;
+      }
       }
     } else {
       // 목적지로 가면서 물체와 사람을 피한다
@@ -137,45 +280,50 @@ export class Cat {
       for (const [ox, oz, R, low] of env.obstacles) if (!low) avoid(ox, oz, R + 0.15, 1.3);
       const big = env.big?.(this.x, this.z);
       if (big) avoid(big[0], big[1], big[2], 1.6);
-      for (const p of env.people()) avoid(p.x, p.z, 0.75, 1.3);
+      if (!running || d > 1.3) for (const p of env.people()) avoid(p.x, p.z, 0.75, 1.3);
       const to = Math.atan2(vx, vz);
       this.yaw += wrap(to - this.yaw) * (1 - Math.exp(-5 * dt));
-      const sp = 1.05 * dt;
+      const sp = (running ? 2.3 : 1.05) * dt;
       this.x += Math.sin(this.yaw) * sp; this.z += Math.cos(this.yaw) * sp;
       moving = 1;
       if (d < this.bestD - 0.25) { this.bestD = d; this.bestAt = t; }
       if (t - this.bestAt > 7) {
         // 막혔으면 다음 지점으로, 마지막이면 조용히 사라진다
-        if (last) { this.hide(env.nextWait()); return; }
+        if (running && d < 1.5) { this.eating = true; this.eatTo = 1; this.bestAt = t; }
+        else if (last) { this.hide(env.nextWait()); return; }
+        else
         this.i++; this.bestD = Infinity; this.bestAt = t;
       }
     }
     this.scale = Math.min(1, this.scale + dt / 0.7);
-    const end = last ? Math.min(1, d / 1.2) : 1;
+    const end = last && !this.food ? Math.min(1, d / 1.2) : 1;
     this.root.scale.setScalar(0.88 * Math.min(this.scale, end));
     this.root.position.set(this.x, env.y(this.z), this.z);
     this.root.rotation.y = this.yaw;
 
     this.walkK = damp(this.walkK, moving, 8, dt);
     this.sitK = damp(this.sitK, this.sitTo, 4, dt);
-    this.phase += dt * 7.5 * moving;
-    const W = this.walkK, S = this.sitK;
-    this.body.position.y = 0.5 - 0.16 * S + Math.abs(Math.sin(this.phase)) * 0.012 * W;
-    this.body.rotation.x = -0.72 * S;
+    this.eatK = damp(this.eatK, this.eatTo, 4, dt);
+    this.phase += dt * (running ? 13 : 7.5) * moving;
+    const W = this.walkK, S = this.sitK, E = this.eatK;
+    this.body.position.y = 0.5 - 0.16 * S - 0.07 * E + Math.abs(Math.sin(this.phase)) * 0.012 * W;
+    this.body.rotation.x = -0.72 * S + 0.3 * E;
     this.body.rotation.z = Math.sin(this.phase) * 0.018 * W;
     for (const l of this.legs) {
       const swing = Math.sin(this.phase + l.ph) * 0.48 * W;
-      if (l.front) { l.pivot.rotation.x = swing + 0.72 * S; l.pivot.scale.y = 1 + 0.46 * S; }
-      else l.pivot.rotation.x = swing - 0.82 * S;
+      if (l.front) { l.pivot.rotation.x = swing + 0.72 * S - 0.3 * E; l.pivot.scale.y = 1 + 0.46 * S - 0.3 * E; }
+      else { l.pivot.rotation.x = swing - 0.82 * S - 0.3 * E; l.pivot.scale.y = 1 + 0.1 * E; }
     }
     // 앉으면 고개를 돌려 둘러본다
     const look = this.pause > 0 ? (this.lookAt || 0) * (0.7 + 0.3 * Math.sin(t * 0.7)) : 0;
     this.head.rotation.y = damp(this.head.rotation.y, look, 3, dt);
-    this.head.rotation.x = 0.72 * S + Math.sin(this.phase * 0.5) * 0.035 * W;
-    // 걸을 때는 꼬리를 세우고, 앉으면 내려 뒤로 뻗는다
+    this.head.rotation.x = 0.72 * S + Math.sin(this.phase * 0.5) * 0.035 * W + E * (0.62 + Math.sin(t * 9) * 0.07);
+    this.head.rotation.z = damp(this.head.rotation.z, (this.coat.tilt || 0) * S, 2.5, dt);   // 앉으면 고개를 갸웃한다
+    // 걸을 때는 꼬리를 세우고, 앉으면 내려 땅 위로 뒤에 놓는다
+    const up = this.coat.tailUp ?? -0.55, curl = this.coat.tailCurl ?? 0.1;
     this.tail.forEach((g, i) => {
       const k = i / 5;
-      g.rotation.x = i === 0 ? -0.55 + 2.1 * S : (0.1 + 0.08 * k) * (1 - S) + 0.2 * S * (i < 3 ? 1 : -0.4);
+      g.rotation.x = i === 0 ? up * (1 - S) - 1.3 * S : (curl + 0.08 * k) * (1 - S) + 0.32 * S * (i < 3 ? 1 : 0.2);
       g.rotation.z = Math.sin(t * 1.9 + i * 0.75) * (0.1 + 0.11 * k);
     });
   }
