@@ -919,7 +919,7 @@ function updateMonk(c, dt, t) {
   for (const { a, s, up, e, fore, w, hand, pose } of c.arms) {
     const swing = Math.sin(c.phase + (s > 0 ? 0 : Math.PI)) * 0.55 * c.walk;
     const lap = c.sit * (1 - c.hap) * (1 - rise) * (1 - spread);
-    eulerArm.set(swing * (1 - c.hap) - 0.72 * lap - 3.02 * down, 0, s * (0.2 * (1 - c.hap) * (1 - lap) - 0.5 * lap + 0.26 * down + 1.2 * spread * (1 - down)));
+    eulerArm.set(swing * (1 - c.hap) - 0.72 * lap - 3.02 * down, 0, s * (0.2 * (1 - c.hap) * (1 - lap) - 0.5 * lap + 0.8 * down + 1.2 * spread * (1 - down)));
     qRest.setFromEuler(eulerArm);
     a.quaternion.slerpQuaternions(qRest, pose.upper, hapK);
     e.quaternion.slerpQuaternions(qOne, pose.elbow, hapK);
