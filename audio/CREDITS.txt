@@ -25,3 +25,7 @@ amb_rain.mp3
 원본: October rain in Nepal, Nirmal Dulal
 라이선스: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
 https://commons.wikimedia.org/wiki/File:October_rain_in_Nepal.ogg
+
+voice_count.mp3
+절 횟수 안내 음성. Supertone의 Supertonic 3 모델로 합성했습니다 (tools/render_voice.py).
+모델 라이선스: OpenRAIL-M (https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE)

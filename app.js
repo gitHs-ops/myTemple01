@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
-import { Sound } from './sound.js?v=9';
+import { Sound } from './sound.js?v=10';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=7';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 import { BULDU, buildBuldu } from './buldu.js?v=2';
@@ -1106,6 +1106,7 @@ function updateMonk(c, dt, t) {
 
 /* ───────── 나와 이웃 ───────── */
 const sound = new Sound(state.vol);
+sound.voiceVol = state.voiceVol;
 let player = null;
 const npcs = [];
 const marker = mesh(new THREE.RingGeometry(0.18, 0.28, 24), new THREE.MeshBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.8, depthWrite: false }), 0, 0.03, 0);
@@ -1357,15 +1358,11 @@ function korNum(n) {
   const man = Math.floor(n / 10000), rest = n % 10000;
   return (man ? (man === 1 ? '' : under(man)) + '만' : '') + under(rest);
 }
-const koVoice = () => window.speechSynthesis?.getVoices().find((v) => v.lang?.toLowerCase().startsWith('ko')) ?? null;
-function speak(text) {
-  const ss = window.speechSynthesis;
-  if (!ss || !state.voiceOn || !window.SpeechSynthesisUtterance) return;
-  ss.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'ko-KR'; u.rate = 0.95; u.volume = state.voiceVol / 100;
-  const v = koVoice(); if (v) u.voice = v;
-  ss.speak(u);
+// 108까지는 통째로 녹음한 조각, 그 위는 낱말 조각을 잇는다
+function sayBows(n, finished = false) {
+  if (!state.voiceOn) return;
+  const keys = finished ? [...korNum(n), '배를 마쳤습니다'] : n <= 108 ? [String(n)] : [...korNum(n), '배'];
+  sound.say(keys).catch(() => toast('안내 음성을 불러오지 못했습니다'));
 }
 async function holdScreen(on) {
   try {
@@ -1439,10 +1436,10 @@ function onPlayerBowDone() {
     state.vows[g] = 0; save();
     autoBow = false; vowGoal = null; setAutoUi(); holdScreen(false); updateHud();
     sound.bell(); toast(`${vowName(g)}를 마쳤습니다`, 6000);
-    speak(`${korNum(g)} 배를 마쳤습니다`);
+    sayBows(g, true);
     return;
   }
-  speak(`${korNum(n)} 배`);
+  sayBows(n);
   if (g) {
     if (n % 108 === 0) { sound.bell(0.5); toast(`${n.toLocaleString()}배를 올렸습니다`, 3000); }
   } else if (n % 108 === 0) {
@@ -1603,7 +1600,7 @@ $('btnBeads').onclick = () => openModal('beadsModal');
 const LEFT_KEY = 'goyoam.left';
 $('exitBtn').onclick = () => {
   stopAuto(); save();
-  window.speechSynthesis?.cancel();
+  sound.stopVoice();
   sound.ctx?.close();
   try { sessionStorage.setItem(LEFT_KEY, '1'); } catch { /* 사생활 모드 등 */ }
   window.close();   // 스크립트로 연 창이 아니면 브라우저가 막으므로 입구로 돌아간다
@@ -1734,7 +1731,7 @@ $('setChant').onchange = () => { chantUntil = 0; playTrack($('setChant').value |
 $('setSeason').onchange = () => pickSeason($('setSeason').value);
 $('setVoice').onchange = () => {
   state.voiceOn = $('setVoice').checked; save();
-  if (state.voiceOn) speak('일 배'); else window.speechSynthesis?.cancel();
+  if (state.voiceOn) sayBows(1); else sound.stopVoice();
 };
 $('openSettings').onclick = () => {
   drawTracks(); drawAmbients(); drawSeasons();
@@ -1748,10 +1745,6 @@ const vowTime = (goal) => {
   return `약 ${h ? `${h}시간 ` : ''}${m ? `${m}분` : ''}`.trim();
 };
 fillList('vowList', VOWS.map((v) => ({ id: String(v.goal), name: v.name, desc: vowTime(v.goal) })), (id) => {
-  // 모바일 음성은 누르는 순간 한 번 깨워 두어야 이후에 나온다
-  if (state.voiceOn && window.speechSynthesis && window.SpeechSynthesisUtterance) {
-    const wake = new SpeechSynthesisUtterance(' '); wake.volume = 0; window.speechSynthesis.speak(wake);
-  }
   closeModals();
   startVow(+id);
 });
@@ -1766,24 +1759,17 @@ function drawVows() {
   vowResetArmed = false; $('vowReset').textContent = '진행 기록 지우기';
   $('voiceOn').checked = state.voiceOn;
   $('volVoice').value = state.voiceVol;
-  drawVoiceNote();
 }
-function drawVoiceNote() {
-  const ss = window.speechSynthesis, voices = ss?.getVoices() ?? [];
-  const none = !ss || !window.SpeechSynthesisUtterance || (voices.length > 0 && !koVoice());
-  $('voiceNote').hidden = !none;
-}
-if (window.speechSynthesis) window.speechSynthesis.addEventListener?.('voiceschanged', drawVoiceNote);
 $('vowReset').onclick = () => {
   if (!vowResetArmed) { vowResetArmed = true; $('vowReset').textContent = '한 번 더 누르면 지웁니다'; return; }
   state.vows = {}; save(); drawVows(); updateHud();
 };
 $('voiceOn').onchange = () => {
   state.voiceOn = $('voiceOn').checked; save();
-  if (state.voiceOn) speak('일 배'); else window.speechSynthesis?.cancel();
+  if (state.voiceOn) sayBows(1); else sound.stopVoice();
 };
-$('volVoice').oninput = () => { state.voiceVol = +$('volVoice').value; save(); };
-$('volVoice').onchange = () => speak('백팔 배');
+$('volVoice').oninput = () => { state.voiceVol = sound.voiceVol = +$('volVoice').value; sound.applyVolumes(); save(); };
+$('volVoice').onchange = () => sayBows(108);
 $('skyBtn').onclick = () => {
   if (skyBack) { skyGoal = skyBack; skyBack = null; $('skyLabel').textContent = '하늘 보기'; setStarMode(false); return; }
   skyBack = { phi: orbit.phi, dist: orbit.dist };
@@ -2071,6 +2057,7 @@ function enter() {
   $('whoName').textContent = name;
   updateHud(); drawBeads();
   sound.start();
+  if (state.voiceOn) sound.loadVoice().catch(() => {});
   tabs?.postMessage('entered');
   entered = true;
   orbit.theta = 0;

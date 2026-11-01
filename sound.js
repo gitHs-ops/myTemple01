@@ -5,6 +5,7 @@ const CHANT_LOOP = 64;    // 렌더러의 LOOP와 같아야 한다
 const AMB_LOOP = { wind: 58, stream: 60, rain: 57, forest: 47, night: 27 };   // tools/render_ambience.py의 고리 길이(초)
 const AMB_LEVEL = { wind: 3, stream: 2, rain: 2, forest: 3, night: 3 };   // 소리 사이 크기 맞춤
 const ambUrl = (id) => `audio/amb_${id}.mp3?v=2`;
+const VOICE_URL = 'audio/voice_count', VOICE_LEAD = 0.02;
 
 export class Sound {
   constructor(vol) { this.vol = vol; this.ctx = null; this.chantOn = false; this.ambId = 'wind'; }
@@ -24,7 +25,7 @@ export class Sound {
     this.reverb.connect(wet); wet.connect(this.master);
 
     this.buses = {};
-    for (const k of ['wind', 'chant', 'perc']) {
+    for (const k of ['wind', 'chant', 'perc', 'voice']) {
       const g = ctx.createGain(); g.connect(this.master);
       this.buses[k] = g;
     }
@@ -46,6 +47,7 @@ export class Sound {
     this.buses.wind.gain.setTargetAtTime(curve(this.vol.wind) * 0.6, t, 0.05);
     this.buses.chant.gain.setTargetAtTime(curve(this.vol.chant) * 1.3, t, 0.05);
     this.buses.perc.gain.setTargetAtTime(curve(this.vol.perc), t, 0.05);
+    this.buses.voice.gain.setTargetAtTime(curve(this.voiceVol ?? 80) * 1.6, t, 0.05);
   }
 
   impulse(sec) {
@@ -129,6 +131,40 @@ export class Sound {
     const P = [[0.5, 0.42, 16], [1, 0.34, 13], [1.012, 0.2, 12], [1.19, 0.15, 10], [1.5, 0.12, 8], [2, 0.11, 6.5], [2.51, 0.07, 4.5], [3.01, 0.05, 3.2], [4.17, 0.03, 2]];
     for (const [r, a, d] of P) this.tone(base * r, t, d, a * level, this.buses.perc, this.percSend);
     this.tone(70, t, 0.25, 0.25 * level, this.buses.perc);
+  }
+
+  // 절 횟수 안내(남자 목소리). tools/render_voice.py로 한 파일에 렌더링한 조각을 이어 재생한다
+  loadVoice() {
+    this.voiceLoad ??= Promise.all([
+      fetch(VOICE_URL + '.json?v=1').then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      fetch(VOICE_URL + '.mp3?v=1').then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); }).then((b) => this.ctx.decodeAudioData(b)),
+    ]).then(([table, buf]) => ({ table, buf })).catch((e) => { this.voiceLoad = null; throw e; });
+    return this.voiceLoad;
+  }
+
+  stopVoice() {
+    this.voiceToken = (this.voiceToken || 0) + 1;
+    for (const src of this.voiceSrcs || []) { try { src.stop(); } catch { /* 이미 끝남 */ } }
+    this.voiceSrcs = [];
+  }
+
+  async say(keys) {
+    if (!this.ctx) return;
+    this.stopVoice();
+    const token = this.voiceToken;
+    const { table, buf } = await this.loadVoice();
+    if (token !== this.voiceToken || this.ctx.state === 'closed') return;
+    this.ctx.resume();
+    let at = this.ctx.currentTime + 0.03;
+    for (const k of keys) {
+      const item = table[k];
+      if (!item) continue;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf; src.connect(this.buses.voice);
+      src.start(at, Math.max(0, item[0] - VOICE_LEAD), item[1] + VOICE_LEAD + 0.02);
+      this.voiceSrcs.push(src);
+      at += item[1] + 0.01;
+    }
   }
 
   setGarden(on) {
