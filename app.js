@@ -878,15 +878,16 @@ function updateMonk(c, dt, t) {
   c.sit = damp(c.sit, c.sitTo, 6, dt);
   if (c.hapUntil && t > c.hapUntil) { c.hapTo = 0; c.hapUntil = 0; }
 
-  let kneel = 0, down = 0, rise = 0;
+  let kneel = 0, down = 0, rise = 0, spread = 0;
   if (c.bowT != null) {
     c.bowT += dt / BOW_TIME;
     const b = c.bowT;
-    // 합장하고 일어나 → 앉고 → 이마를 숙였다가 → 일으켜 앉고 → 다시 일어난다
+    // 일어나 → 양팔을 벌리며 앉고 → 이마를 숙였다가 → 일으켜 앉고 → 팔을 내리며 일어난다
     rise = smooth(0, 0.14, b) * (1 - smooth(0.24, 0.38, b));
     kneel = smooth(0.24, 0.38, b) * (1 - smooth(0.86, 1, b));
     down = smooth(0.38, 0.54, b) * (1 - smooth(0.68, 0.84, b));
-    c.hapTo = 1;
+    spread = smooth(0.1, 0.28, b) * (1 - smooth(0.84, 0.98, b));
+    c.hapTo = 0; c.hapUntil = 0;
     if (!c.bowHit && b > 0.54) { c.bowHit = true; if (c.mine) sound.moktak(0.75); }
     if (b >= 1) { c.bowT = null; c.hapTo = 0; c.onBowDone?.(); }
   }
@@ -917,14 +918,15 @@ function updateMonk(c, dt, t) {
   const hapK = c.hap * (1 - down);
   for (const { a, s, up, e, fore, w, hand, pose } of c.arms) {
     const swing = Math.sin(c.phase + (s > 0 ? 0 : Math.PI)) * 0.55 * c.walk;
-    const lap = c.sit * (1 - c.hap);
-    eulerArm.set(swing * (1 - c.hap) - 0.72 * lap - 3.02 * down, 0, s * (0.2 * (1 - c.hap) * (1 - lap) - 0.5 * lap + 0.26 * down));
+    const lap = c.sit * (1 - c.hap) * (1 - rise) * (1 - spread);
+    eulerArm.set(swing * (1 - c.hap) - 0.72 * lap - 3.02 * down, 0, s * (0.2 * (1 - c.hap) * (1 - lap) - 0.5 * lap + 0.26 * down + 1.2 * spread * (1 - down)));
     qRest.setFromEuler(eulerArm);
     a.quaternion.slerpQuaternions(qRest, pose.upper, hapK);
     e.quaternion.slerpQuaternions(qOne, pose.elbow, hapK);
     w.quaternion.slerpQuaternions(qOne, pose.wrist, hapK);
-    // 합장할 때와 절할 때는 팔이 앞으로 길게 뻗는다
-    const lenU = 1 + (pose.lenU - 1) * hapK + 1.1 * down, lenF = 1 + (pose.lenF - 1) * hapK + 1.1 * down;
+    // 합장과 절의 숙임에서는 팔이 앞으로, 앉을 때는 양옆으로 길게 뻗는다
+    const reach = 1.1 * down + 0.5 * spread * (1 - down);
+    const lenU = 1 + (pose.lenU - 1) * hapK + reach, lenF = 1 + (pose.lenF - 1) * hapK + reach;
     up.scale.y = lenU; up.position.y = -ARM_UP / 2 * lenU;
     e.position.y = -ARM_UP * lenU;
     fore.scale.y = lenF; fore.position.y = -ARM_FORE / 2 * lenF;
@@ -1723,7 +1725,7 @@ addEventListener('resize', resize); resize();
 const camPos = new THREE.Vector3();
 let camFit = 1;
 let poseK = 0, poseOff = false;
-const POSE_TURN = 1.7, POSE_DIST = 4.8;
+const POSE_TURN = 1.7, POSE_TURN_BOW = 2.5, POSE_DIST = 4.8;
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 function updateCamera(dt) {
   const snap = camSnap; camSnap = false;
@@ -1737,7 +1739,8 @@ function updateCamera(dt) {
   if (player && poseK > 0.001) {
     const front = player.yawTo;
     const side = wrapAngle(orbit.theta - front) >= 0 ? 1 : -1;
-    camTheta = orbit.theta + wrapAngle(front + side * POSE_TURN - orbit.theta) * poseK;
+    const turn = player.bowT != null || autoBow ? POSE_TURN_BOW : POSE_TURN;   // 벌린 팔은 등 뒤 비스듬한 쪽에서 잘 보인다
+    camTheta = orbit.theta + wrapAngle(front + side * turn - orbit.theta) * poseK;
   }
   const baseDist = orbit.dist + (Math.min(orbit.dist, POSE_DIST) - orbit.dist) * poseK;
   // 정원에서는 탑이나 나무에 시야가 막히면 카메라를 앞으로 당긴다
