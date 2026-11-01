@@ -150,7 +150,32 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
   });
   koiMesh.frustumCulled = tailMesh.frustumCulled = false;
   root.add(koiMesh, tailMesh);
-  let feed = null;
+  let feed = null, clock = 0;
+
+  // 잉어 먹이: 손에서 날아가 물에 떠 있다가 잉어가 받아먹는다
+  const MAX_PELLETS = 30, SURFACE = GROUND_Y + 0.135;
+  const pelletMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.05, 7, 5), lamb(0xe6b56c), MAX_PELLETS);
+  pelletMesh.frustumCulled = false; pelletMesh.count = 0; root.add(pelletMesh);
+  let pellets = [], pelletsEaten = 0;
+  const updatePellets = (t, dt) => {
+    pellets = pellets.filter((q) => q.land == null || t - q.land < 11);
+    pellets.forEach((q, i) => {
+      let x = q.x, y = SURFACE + Math.sin(t * 2 + q.ph) * 0.006, z = q.z;
+      if (q.land == null) {
+        q.k = Math.min(1, q.k + dt / q.dur);
+        x = q.sx + (q.x - q.sx) * q.k; z = q.sz + (q.z - q.sz) * q.k;
+        y = q.sy + (SURFACE - q.sy) * q.k + 4 * q.arc * q.k * (1 - q.k);
+        if (q.k >= 1) {
+          q.land = t;
+          if (q.lead) { water.ripple.value.set(q.x, q.z, t, 0); q.onLand?.(); }
+        }
+      }
+      dummy.position.set(x, y, z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(1); dummy.updateMatrix();
+      pelletMesh.setMatrixAt(i, dummy.matrix);
+    });
+    pelletMesh.count = pellets.length;
+    pelletMesh.instanceMatrix.needsUpdate = true;
+  };
 
   // 바위
   const rockMats = [];
@@ -298,7 +323,8 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
     }
   });
   slots.forEach((q, i) => stoneMesh.setColorAt(i, col.setHSL(0.08, 0.06, q.tone)));
-  let drop = null;
+  let drop = null, clearing = null;
+  const smooth01 = (x) => { const k = Math.max(0, Math.min(1, x)); return k * k * (3 - 2 * k); };
   const writeStone = (i, n, off = 0) => {
     const q = slots[i % MAX_STONES];
     dummy.position.set(q.x, q.y + off, q.z); dummy.rotation.set(0, q.rot, 0); dummy.scale.set(q.w, q.h, q.d); dummy.updateMatrix();
@@ -432,11 +458,22 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
     fallInfo() {
       return { season: seasonNow, kind: fallNow?.kind, count: fallNow ? fall[fallNow.kind].count : 0, visible: fallNow ? fall[fallNow.kind].visible : false, litter: litter.count, flies: flyCore.visible, sampleY: flakes[0].y, ice: water.ice.value, bare: trees[0].bare.visible };
     },
-    setStones(n) { for (let i = 0; i < Math.min(n, MAX_STONES); i++) writeStone(n - 1 - i, n); stoneMesh.count = Math.min(n, MAX_STONES); },
+    setStones(n) { clearing = null; for (let i = 0; i < Math.min(n, MAX_STONES); i++) writeStone(n - 1 - i, n); stoneMesh.count = Math.min(n, MAX_STONES); },
     placeStone(n) { drop = { i: n - 1, n, t: 0 }; writeStone(n - 1, n, 1.2); },
     stoneSite(n) { const k = Math.floor((n % MAX_STONES) / PER_TOWER); return TOWER_SITES[k]; },
     towerDone: (n) => n % PER_TOWER === 0,
-    feed(x, z, now) { feed = { x, z, until: now + 13 }; water.ripple.value.set(x, z, now, 0); },
+    clearStones(onDone) { clearing = { t: 0, onDone }; },
+    tossFeed(from, x, z, onLand) {
+      feed = { x, z, until: clock + 13 };
+      for (let k = 0; k < 8; k++) {
+        const ang = Math.random() * 6.283, rad = Math.sqrt(Math.random()) * 0.75;
+        pellets.push({ sx: from.x, sy: from.y, sz: from.z, x: x + Math.sin(ang) * rad, z: z + Math.cos(ang) * rad, k: 0, dur: 0.5 + Math.random() * 0.16, arc: 0.45 + Math.random() * 0.3, land: null, ph: ang, lead: k === 0, onLand: k === 0 ? onLand : null });
+      }
+      if (pellets.length > MAX_PELLETS) pellets = pellets.slice(-MAX_PELLETS);
+    },
+    feedInfo: () => ({ flying: pellets.filter((q) => q.land == null).length, floating: pellets.filter((q) => q.land != null).length, eaten: pelletsEaten, feeding: !!feed && clock < feed.until, shown: pelletMesh.count }),
+    stoneCount: () => stoneMesh.count,
+    koiNear() { return feed ? koi.filter((f) => Math.hypot(f.x - feed.x, f.z - feed.z) < 2).length : 0; },
     setSky(color, night) { water.sky.value.copy(color); lampGlow.forEach((m) => { m.emissiveIntensity = 0.25 + night * 1.5; }); nightNow = night; updateFlies(); },
     update(t, dt) {
       water.time.value = t;
@@ -456,10 +493,33 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
         writeStone(drop.i, drop.n, (1 - k * k) * 1.2);
         if (done) { const cb = drop.onLand; drop = null; cb?.(); }
       }
+      clock = t;
+      if (clearing) {
+        // 탑마다 위에서부터 차례로 내려앉는다
+        clearing.t += dt / 1.1;
+        for (let i = 0; i < stoneMesh.count; i++) {
+          const q = slots[i], j = i % PER_TOWER, k = smooth01((clearing.t - (1 - j / PER_TOWER) * 0.68) / 0.32);
+          dummy.position.set(q.x, q.y - k * 0.12, q.z); dummy.rotation.set(0, q.rot, 0); dummy.scale.set(q.w * (1 - k), q.h * (1 - k), q.d * (1 - k)); dummy.updateMatrix();
+          stoneMesh.setMatrixAt(i, dummy.matrix);
+        }
+        stoneMesh.instanceMatrix.needsUpdate = true;
+        if (clearing.t >= 1) { const cb = clearing.onDone; clearing = null; stoneMesh.count = 0; cb?.(); }
+      }
+      if (pellets.length || pelletMesh.count) updatePellets(t, dt);
       koi.forEach((f, i) => {
         const fed = feed && t < feed.until;
+        const afloat = fed ? pellets.filter((q) => q.land != null && t - q.land > 0.7) : [];
+        const bait = afloat.length ? afloat[i % afloat.length] : null;
         let tx, tz;
-        if (fed) { const ring = 0.75 + (i % 3) * 0.42, ang = i * 2.4 + t * 0.35; tx = feed.x + Math.sin(ang) * ring; tz = feed.z + Math.cos(ang) * ring; } else {
+        if (bait) {
+          tx = bait.x; tz = bait.z;
+          if (Math.hypot(tx - f.x, tz - f.z) < 0.3) {
+            // 수면까지 올라와 받아먹는다
+            pellets.splice(pellets.indexOf(bait), 1); pelletsEaten++;
+            f.rise = 1; water.ripple.value.set(tx, tz, t, 0);
+            if (!pellets.length) feed.until = Math.min(feed.until, t + 4);
+          }
+        } else if (fed) { const ring = 0.75 + (i % 3) * 0.42, ang = i * 2.4 + t * 0.35; tx = feed.x + Math.sin(ang) * ring; tz = feed.z + Math.cos(ang) * ring; } else {
           f.ph += dt * f.wob;
           tx = POND.x + Math.sin(f.ph + i) * (3.8 + (i % 3));
           tz = POND.z + Math.cos(f.ph * 0.8 + i * 1.7) * (3.2 + (i % 3));
@@ -473,7 +533,8 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
         const a = Math.atan2(nx - POND.x, nz - POND.z), R = Math.hypot(nx - POND.x, nz - POND.z);
         if (R < pondR(a) - 0.5) { f.x = nx; f.z = nz; } else f.h += dt * 2.6;
         const wag = Math.sin(t * (fed ? 11 : 6) + i) * 0.24;
-        const fy = GROUND_Y + 0.05 + i * 0.006;
+        f.rise = Math.max(0, (f.rise || 0) - dt * 1.8);
+        const fy = GROUND_Y + 0.05 + i * 0.006 + Math.sin(f.rise * Math.PI) * 0.075;
         dummy.position.set(f.x, fy, f.z); dummy.rotation.set(0, f.h + wag * 0.45, 0); dummy.scale.setScalar(1.4); dummy.updateMatrix();
         koiMesh.setMatrixAt(i, dummy.matrix);
         dummy.position.set(f.x - Math.sin(f.h) * 0.5, fy, f.z - Math.cos(f.h) * 0.5); dummy.rotation.set(0, f.h - wag, 0); dummy.updateMatrix();

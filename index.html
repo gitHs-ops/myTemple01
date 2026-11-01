@@ -10,7 +10,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%236366f1'/%3E%3Cpath d='M16 7c3 4 3 7 0 10-3-3-3-6 0-10zM7 15c4 0 7 1 9 5-4 1-7-1-9-5zm18 0c-4 0-7 1-9 5 4 1 7-1 9-5zM9 23h14' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 <canvas id="scene" aria-label="법당 3D 화면"></canvas>
@@ -21,6 +21,7 @@
   <div class="glass counter" aria-live="polite">
     <div class="counter-row"><span id="countLabel">오늘 절</span><b id="bowToday">0</b><span class="muted" id="countOf">/ 108</span></div>
     <div class="bar" id="bowBarWrap"><i id="bowBar"></i></div>
+    <button class="counter-link" id="stoneReset" type="button" title="돌탑을 허물고 처음부터 다시 쌓기" hidden>새로 쌓기</button>
   </div>
   <button class="glass icon-btn" id="openSettings" aria-label="설정과 안내">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/></svg>
@@ -155,6 +156,17 @@
 </div>
 
 <!-- 별자리 설명 모달 -->
+<div class="overlay" id="stoneModal" hidden>
+  <div class="glass modal" role="dialog" aria-modal="true" aria-labelledby="stoneTitle">
+    <button class="modal-x" data-close aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <h2 id="stoneTitle">돌탑 새로 쌓기</h2>
+    <p class="muted" id="stoneAsk"></p>
+    <div class="modal-actions">
+      <button class="ghost wide" data-close type="button">그대로 두기</button>
+      <button class="primary wide" id="stoneResetGo" type="button">새로 쌓기</button>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="constModal" hidden>
   <div class="glass modal" role="dialog" aria-modal="true" aria-labelledby="constTitle">
     <button class="modal-x" data-close aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
@@ -208,6 +220,6 @@
   <p>이 브라우저에서 3D 화면(WebGL)을 쓸 수 없습니다. 다른 브라우저로 접속해 주세요.</p>
 </div>
 
-<script type="module" src="app.js?v=24"></script>
+<script type="module" src="app.js?v=25"></script>
 </body>
 </html>
