@@ -10,7 +10,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%236366f1'/%3E%3Cpath d='M16 7c3 4 3 7 0 10-3-3-3-6 0-10zM7 15c4 0 7 1 9 5-4 1-7-1-9-5zm18 0c-4 0-7 1-9 5 4 1 7-1 9-5zM9 23h14' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <canvas id="scene" aria-label="법당 3D 화면"></canvas>
@@ -45,7 +45,7 @@
 <nav id="dock" class="glass" hidden>
   <button id="btnHap" title="합장 (H)"><svg viewBox="0 0 24 24"><path d="M12 3c-2 3-3 7-3 11v6m3-17c2 3 3 7 3 11v6M12 3v17M6 20h12"/></svg><span>합장</span></button>
   <button id="btnBow" title="절하기 (Space)"><svg viewBox="0 0 24 24"><circle cx="17" cy="7" r="3"/><path d="M15 11c-4 1-8 4-10 9h15"/></svg><span>절하기</span></button>
-  <button id="btnAuto" aria-pressed="false" title="이어서 절하기"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5l2 2m0-5v5h-5M20 12a8 8 0 0 1-14 5l-2-2m0 5v-5h5"/></svg><span>연속 절</span></button>
+  <button id="btnAuto" aria-pressed="false" title="108배, 천배, 만배 고르기"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5l2 2m0-5v5h-5M20 12a8 8 0 0 1-14 5l-2-2m0 5v-5h5"/></svg><span id="autoLabel">연속 절</span></button>
   <button id="btnStone" title="돌탑에 돌 올리기" hidden><svg viewBox="0 0 24 24"><ellipse cx="12" cy="19" rx="8" ry="2.6"/><ellipse cx="12" cy="13.2" rx="5.6" ry="2.2"/><ellipse cx="12" cy="8" rx="3.6" ry="1.8"/><ellipse cx="12" cy="3.8" rx="2" ry="1.1"/></svg><span>돌 쌓기</span></button>
   <button id="btnFeed" title="잉어에게 먹이 주기" hidden><svg viewBox="0 0 24 24"><path d="M3 12c4-5 10-5 14 0-4 5-10 5-14 0zm14 0 4-3v6z"/><circle cx="8" cy="11" r=".7"/></svg><span>먹이 주기</span></button>
   <button id="btnSit" title="자리에 앉기"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="17" rx="9" ry="3.4"/><circle cx="12" cy="7" r="3.2"/><path d="M12 10.5v3"/></svg><span id="btnSitLabel">앉기</span></button>
@@ -126,6 +126,21 @@
   </div>
 </div>
 
+<!-- 연속 절 선택 모달 -->
+<div class="overlay" id="vowModal" hidden>
+  <div class="glass modal" role="dialog" aria-modal="true" aria-labelledby="vowTitle">
+    <button class="modal-x" data-close aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <h2 id="vowTitle">연속 절</h2>
+    <p class="muted small">멈춰도 기록이 남아 다음에 이어서 올릴 수 있습니다. 이 화면을 보고 있는 동안에만 절이 이어집니다.</p>
+    <div id="vowList" class="track-list" role="group" aria-labelledby="vowTitle"></div>
+    <button class="ghost wide" id="vowReset" type="button" hidden>진행 기록 지우기</button>
+    <label class="check-row"><input type="checkbox" id="voiceOn"> 절할 때마다 횟수 말하기</label>
+    <div class="field"><label for="volVoice">말소리 크기</label><input type="range" id="volVoice" min="0" max="100"></div>
+    <p class="muted small" id="voiceNote" hidden>이 기기에 한국어 음성이 없어 횟수를 소리로 말할 수 없습니다. 화면의 숫자로 확인해 주세요.</p>
+    <div class="modal-actions"><button class="primary wide" data-close type="button">닫기</button></div>
+  </div>
+</div>
+
 <!-- 설정/안내 모달 -->
 <div class="overlay" id="settingsModal" hidden>
   <div class="glass modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
@@ -158,6 +173,6 @@
   <p>이 브라우저에서 3D 화면(WebGL)을 쓸 수 없습니다. 다른 브라우저로 접속해 주세요.</p>
 </div>
 
-<script type="module" src="app.js?v=13"></script>
+<script type="module" src="app.js?v=14"></script>
 </body>
 </html>

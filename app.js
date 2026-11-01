@@ -17,7 +17,7 @@ const KEY = 'goyoam.v1';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 사생활 모드 등 */ } };
 const state = Object.assign(
-  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, season: 'auto', chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
+  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, season: 'auto', vows: {}, voiceOn: true, voiceVol: 80, chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
   (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })()
 );
 const rollDay = () => { if (state.day !== today()) { state.day = today(); state.bowsToday = 0; save(); updateHud(); } };
@@ -898,7 +898,7 @@ let tap = null, pinch = 0;
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitV = new THREE.Vector3();
 let entered = false;
-const modalOpen = () => !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden || !$('seasonModal').hidden;
+const modalOpen = () => !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden || !$('seasonModal').hidden || !$('vowModal').hidden;
 
 canvas.addEventListener('pointerdown', (e) => {
   if (!entered) return;
@@ -1004,16 +1004,56 @@ addEventListener('blur', () => keys.clear());
 
 /* ───────── 행동·HUD ───────── */
 let autoBow = false, toastTimer;
+let vowGoal = null, pendingVow = null, wakeLock = null;
+const VOWS = [{ goal: 108, name: '108배' }, { goal: 1000, name: '천배' }, { goal: 10000, name: '만배' }];
+const vowName = (g) => VOWS.find((v) => v.goal === g)?.name ?? `${g}배`;
+
+/* 횟수 읽기: 숫자를 한글로 풀어 어느 음성이든 "백팔 배"로 읽게 한다 */
+function korNum(n) {
+  if (!n) return '영';
+  const D = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+  const under = (x) => {
+    let out = '';
+    [[1000, '천'], [100, '백'], [10, '십']].forEach(([u, w]) => {
+      const d = Math.floor(x / u) % 10;
+      if (d) out += (d === 1 ? '' : D[d]) + w;
+    });
+    return out + D[x % 10];
+  };
+  const man = Math.floor(n / 10000), rest = n % 10000;
+  return (man ? (man === 1 ? '' : under(man)) + '만' : '') + under(rest);
+}
+const koVoice = () => window.speechSynthesis?.getVoices().find((v) => v.lang?.toLowerCase().startsWith('ko')) ?? null;
+function speak(text) {
+  const ss = window.speechSynthesis;
+  if (!ss || !state.voiceOn || !window.SpeechSynthesisUtterance) return;
+  ss.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'ko-KR'; u.rate = 0.95; u.volume = state.voiceVol / 100;
+  const v = koVoice(); if (v) u.voice = v;
+  ss.speak(u);
+}
+async function holdScreen(on) {
+  try {
+    if (on && !wakeLock && navigator.wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener?.('release', () => { wakeLock = null; });
+    } else if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
+  } catch { /* 지원하지 않거나 거절됨 */ }
+}
+document.addEventListener('visibilitychange', () => { if (autoBow && !document.hidden) holdScreen(true); });
 function toast(msg, ms = 2800) {
   const el = $('toast'); el.textContent = msg; el.hidden = true; void el.offsetWidth; el.hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, ms);
 }
 function updateHud() {
   const inGarden = mode === 'garden';
-  $('countLabel').textContent = inGarden ? '쌓은 돌' : '오늘 절';
+  $('countLabel').textContent = inGarden ? '쌓은 돌' : vowGoal ? vowName(vowGoal) : '오늘 절';
   $('countOf').hidden = inGarden; $('bowBarWrap').hidden = inGarden;
-  $('bowToday').textContent = inGarden ? state.stones : state.bowsToday;
-  $('bowBar').style.width = `${Math.min(100, ((state.bowsToday % 108 || (state.bowsToday ? 108 : 0)) / 108) * 100)}%`;
+  $('countOf').textContent = `/ ${(vowGoal ?? 108).toLocaleString()}`;
+  $('bowToday').textContent = inGarden ? state.stones : vowGoal ? (state.vows[vowGoal] || 0).toLocaleString() : state.bowsToday;
+  const barPct = vowGoal ? ((state.vows[vowGoal] || 0) / vowGoal) * 100 : ((state.bowsToday % 108 || (state.bowsToday ? 108 : 0)) / 108) * 100;
+  $('bowBar').style.width = `${Math.min(100, barPct)}%`;
   $('statTotal').textContent = state.bowsTotal.toLocaleString();
   $('statRounds').textContent = state.rounds.toLocaleString();
 }
@@ -1031,17 +1071,48 @@ function doHap() {
 function doBow() {
   if (mode !== 'temple') return;
   rollDay();
+  if (!vowGoal) pendingVow = null;
   if (player.target) { freeCushion(player); player.target = null; marker.visible = false; updateSitBtn(); }
   startBow(player);
 }
+function setAutoUi() {
+  $('btnAuto').setAttribute('aria-pressed', String(autoBow));
+  $('autoLabel').textContent = autoBow ? '멈추기' : '연속 절';
+}
 function stopAuto() {
   if (!autoBow) return;
-  autoBow = false; $('btnAuto').setAttribute('aria-pressed', 'false');
+  const g = vowGoal;
+  autoBow = false; vowGoal = null; setAutoUi(); holdScreen(false); updateHud();
+  if (g) toast(`${vowName(g)} ${(state.vows[g] || 0).toLocaleString()}배에서 멈췄습니다. 다시 고르면 이어집니다`, 4000);
+}
+function startVow(goal) {
+  autoBow = true; vowGoal = goal; pendingVow = null; setAutoUi(); holdScreen(true); updateHud();
+  const done = state.vows[goal] || 0;
+  toast(done ? `${vowName(goal)}를 ${done.toLocaleString()}배부터 이어서 올립니다` : `${vowName(goal)}를 시작합니다. 다시 누르면 멈춥니다`);
+  if (player.bowT == null) doBow();
 }
 function onPlayerBowDone() {
   rollDay();
-  state.bowsToday++; state.bowsTotal++; save(); updateHud();
-  if (state.bowsToday % 108 === 0) { sound.bell(); toast(`108배를 ${state.bowsToday / 108}번 마쳤습니다`, 5000); stopAuto(); return; }
+  const g = vowGoal ?? pendingVow;
+  pendingVow = null;
+  state.bowsToday++; state.bowsTotal++;
+  if (g) state.vows[g] = (state.vows[g] || 0) + 1;
+  save(); updateHud();
+  const n = g ? state.vows[g] : state.bowsToday;
+  if (g && n >= g) {
+    state.vows[g] = 0; save();
+    autoBow = false; vowGoal = null; setAutoUi(); holdScreen(false); updateHud();
+    sound.bell(); toast(`${vowName(g)}를 마쳤습니다`, 6000);
+    speak(`${korNum(g)} 배를 마쳤습니다`);
+    return;
+  }
+  speak(`${korNum(n)} 배`);
+  if (g) {
+    if (n % 108 === 0) { sound.bell(0.5); toast(`${n.toLocaleString()}배를 올렸습니다`, 3000); }
+  } else if (n % 108 === 0) {
+    sound.bell(); toast(`108배를 ${n / 108}번 마쳤습니다`, 5000);
+    return;
+  }
   if (autoBow) setTimeout(() => { if (autoBow) startBow(player); }, 350);
 }
 
@@ -1049,9 +1120,12 @@ $('dock').addEventListener('click', (e) => { if (e.detail) document.activeElemen
 $('btnHap').onclick = doHap;
 $('btnBow').onclick = doBow;
 $('btnAuto').onclick = () => {
-  autoBow = !autoBow;
-  $('btnAuto').setAttribute('aria-pressed', String(autoBow));
-  if (autoBow) { toast('절을 이어서 올립니다. 다시 누르면 멈춥니다'); doBow(); }
+  if (autoBow) {
+    if (player.bowT != null) pendingVow = vowGoal;   // 하던 절까지는 센다
+    stopAuto();
+    return;
+  }
+  drawVows(); openModal('vowModal');
 };
 $('btnSit').onclick = () => {
   if (player.cushion != null || player.target?.cush != null) {
@@ -1228,6 +1302,49 @@ $('modeBtn').onclick = () => {
   }, wait);
 };
 $('openSettings').onclick = () => openModal('settingsModal');
+/* 연속 절 고르기 */
+const BOW_SECONDS = 5.15;
+const vowTime = (goal) => {
+  const min = Math.round((goal * BOW_SECONDS) / 60), h = Math.floor(min / 60), m = min % 60;
+  return `약 ${h ? `${h}시간 ` : ''}${m ? `${m}분` : ''}`.trim();
+};
+fillList('vowList', VOWS.map((v) => ({ id: String(v.goal), name: v.name, desc: vowTime(v.goal) })), (id) => {
+  // 모바일 음성은 누르는 순간 한 번 깨워 두어야 이후에 나온다
+  if (state.voiceOn && window.speechSynthesis && window.SpeechSynthesisUtterance) {
+    const wake = new SpeechSynthesisUtterance(' '); wake.volume = 0; window.speechSynthesis.speak(wake);
+  }
+  closeModals();
+  startVow(+id);
+});
+let vowResetArmed = false;
+function drawVows() {
+  markList('vowList', null, (id) => {
+    const done = state.vows[+id] || 0;
+    return done ? `이어서 ${done.toLocaleString()}배부터` : '';
+  });
+  const any = VOWS.some((v) => state.vows[v.goal]);
+  $('vowReset').hidden = !any;
+  vowResetArmed = false; $('vowReset').textContent = '진행 기록 지우기';
+  $('voiceOn').checked = state.voiceOn;
+  $('volVoice').value = state.voiceVol;
+  drawVoiceNote();
+}
+function drawVoiceNote() {
+  const ss = window.speechSynthesis, voices = ss?.getVoices() ?? [];
+  const none = !ss || !window.SpeechSynthesisUtterance || (voices.length > 0 && !koVoice());
+  $('voiceNote').hidden = !none;
+}
+if (window.speechSynthesis) window.speechSynthesis.addEventListener?.('voiceschanged', drawVoiceNote);
+$('vowReset').onclick = () => {
+  if (!vowResetArmed) { vowResetArmed = true; $('vowReset').textContent = '한 번 더 누르면 지웁니다'; return; }
+  state.vows = {}; save(); drawVows(); updateHud();
+};
+$('voiceOn').onchange = () => {
+  state.voiceOn = $('voiceOn').checked; save();
+  if (state.voiceOn) speak('일 배'); else window.speechSynthesis?.cancel();
+};
+$('volVoice').oninput = () => { state.voiceVol = +$('volVoice').value; save(); };
+$('volVoice').onchange = () => speak('백팔 배');
 $('skyBtn').onclick = () => {
   if (skyBack) { skyGoal = skyBack; skyBack = null; $('skyLabel').textContent = '하늘 보기'; return; }
   skyBack = { phi: orbit.phi, dist: orbit.dist };
@@ -1256,7 +1373,7 @@ function openModal(id) {
   $(id).querySelector('.modal-x').focus();
 }
 function closeModals() {
-  ['beadsModal', 'settingsModal', 'chantModal', 'seasonModal'].forEach((id) => { $(id).hidden = true; });
+  ['beadsModal', 'settingsModal', 'chantModal', 'seasonModal', 'vowModal'].forEach((id) => { $(id).hidden = true; });
   lastFocus?.focus?.(); lastFocus = null;
 }
 document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = closeModals; });
@@ -1464,4 +1581,4 @@ $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
+window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
