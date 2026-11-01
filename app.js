@@ -1,11 +1,11 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=11';
-import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=7';
+import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=8';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
-import { Cat, makeDish } from './cats.js?v=2';
+import { Cat, makeDish } from './cats.js?v=3';
 import { BULDU, buildBuldu } from './buldu.js?v=5';
 
 const $ = (id) => document.getElementById(id);
@@ -1962,6 +1962,7 @@ function applyMode(next) {
   maryGarden.setActive(next === 'mary');
   ['btnStone', 'btnFeed', 'btnTower', 'seasonBtn', 'skyBtn', 'bulduBtn'].forEach((id) => { $(id).hidden = !outside; });
   $('ambBtn').classList.toggle('below', outside);
+  $('dock').classList.toggle('outside', outside);
   setSkyZ(next === 'mary' ? MARY.z : 0);
   catsReset();
   skyGoal = null; skyBack = null; $('skyLabel').textContent = '하늘 보기';
@@ -2137,29 +2138,48 @@ const catSpotClear = (x, z, pad, lowToo = false) => {
   const b = ZONES[mode];
   if (x < b.xMin + 0.5 || x > b.xMax - 0.5 || z < b.zMin + 0.5 || z > b.zMax - 0.5) return false;
   if (mode === 'garden' && Math.hypot(x - POND.x, z - POND.z) < pondR(Math.atan2(x - POND.x, z - POND.z)) + 0.5 + pad) return false;
-  return !OBSTACLES.some(([ox, oz, R, low]) => (lowToo || !low) && Math.hypot(x - ox, z - oz) < R + pad);
+  return ![...OBSTACLES, ...garden.rimRocks].some(([ox, oz, R, low]) => (lowToo || !low) && Math.hypot(x - ox, z - oz) < R + pad);
 };
 /* 먹이 주기: 내 옆에 밥그릇을 놓으면 고양이들이 달려와 먹는다 */
 function callCatsToDish() {
-  // 카메라 앞쪽 옆자리에 놓아 고양이가 화면에 들어오게 한다
+  // 먹이 줄 때의 카메라로 미리 비춰 보고, 그릇과 고양이가 화면에 가장 잘 들어오는 자리를 고른다
   const now = performance.now() / 1000, vx = -Math.sin(feedTheta), vz = -Math.cos(feedTheta), rx = -vz, rz = vx;
-  let dx = player.x + vx * 1.8, dz = player.z + vz * 1.8, best = -1;
-  for (const side of [1.7, 2.3, 3, 1.2]) for (const sgn of [1, -1]) for (const on of [1.2, 0.6, 2, 0, -0.6]) {
-    const x = player.x + rx * sgn * side + vx * on, z = player.z + rz * sgn * side + vz * on;
-    const score = on - Math.abs(side - 1.7) * 0.5;
-    if (score > best && catSpotClear(x, z, 1, true)) { dx = x; dz = z; best = score; }
+  const gy = heightAt(player.z), reach = FEED_DIST * viewFit(player.x, player.z, feedTheta, FEED_DIST * Math.sin(FEED_PHI));
+  const eye = camera.clone();
+  eye.position.set(player.x - vx * reach * Math.sin(FEED_PHI), gy + 1.15 + reach * Math.cos(FEED_PHI), player.z - vz * reach * Math.sin(FEED_PHI));
+  eye.lookAt(player.x, gy + 0.8, player.z); eye.updateMatrixWorld(true);
+  const ndc = new THREE.Vector3();
+  const room = (x, z) => { ndc.set(x, heightAt(z) + 0.2, z).project(eye); return Math.min(1 - Math.abs(ndc.x), ndc.y + (camera.aspect < 1 ? 0.68 : 0.5), 0.75 - ndc.y); };
+  const spread = camera.aspect < 1 ? 0.62 : 1.05, away = Math.atan2(vx, vz);   // 고양이는 그릇 건너편에서 카메라 쪽을 보고 먹는다
+  let dx = player.x + vx * 1.8, dz = player.z + vz * 1.8, best = -9;
+  for (let side = -3.2; side <= 3.2; side += 0.4) for (let on = -3.2; on <= 3.2; on += 0.4) {
+    const x = player.x + rx * side + vx * on, z = player.z + rz * side + vz * on;
+    if (Math.hypot(x - player.x, z - player.z) < 2.4 || !catSpotClear(x, z, 0.6, true)) continue;   // 고양이 자리가 내 몸과 겹치지 않게 띄운다
+    let score = room(x, z);
+    for (const k of [-1, 0, 1]) {
+      const a = away + k * spread;
+      score = Math.min(score, room(x + Math.sin(a) * 1.5, z + Math.cos(a) * 1.5));
+    }
+    if (score < 0) score *= 4;   // 화면 밖은 무엇보다 피한다
+    score -= Math.abs(side) < 0.9 && on > 0 && on < 1.2 ? 0.3 : 0;   // 내 몸에 가리는 자리는 피한다
+    // 카메라와 그릇 사이를 바위나 석등이 막으면 고양이가 가린다
+    for (let f = 0.55; f < 0.98; f += 0.07) {
+      const qx = eye.position.x + (x - eye.position.x) * f, qz = eye.position.z + (z - eye.position.z) * f;
+      if (OBSTACLES.some(([ox, oz, R]) => Math.hypot(qx - ox, qz - oz) < R + 0.25) || (mode === 'garden' && garden.rimRocks.some(([ox, oz, R]) => Math.hypot(qx - ox, qz - oz) < R + 0.25))) { score -= 0.3; break; }
+    }
+    if (mode === 'garden' && Math.hypot(x - POND.x, z - POND.z) < pondR(Math.atan2(x - POND.x, z - POND.z)) + 3) score -= 0.1;   // 연못가 큰 바위에 가리지 않게 물가에서 떨어진다
+    if (score > best) { dx = x; dz = z; best = score; }
   }
   catDish.position.set(dx, heightAt(dz) + 0.005, dz); catDish.visible = true; catDish.scale.setScalar(1);
-  dishUntil = now + 14;
-  const away = Math.atan2(vx, vz);   // 고양이는 그릇 건너편에서 카메라 쪽을 보고 먹는다
+  dishUntil = now + 4;
   strays.forEach((c, i) => {
-    const a = away + (i - 1) * 1.05, x = dx + Math.sin(a) * 0.6, z = dz + Math.cos(a) * 0.6;
+    const a = away + (i - 1) * spread, x = dx + Math.sin(a) * 0.6, z = dz + Math.cos(a) * 0.6;
     let near = [dx + Math.sin(a) * 2, dz + Math.cos(a) * 2];
     for (let k = 0; k < 20; k++) {
       const q = a + catRand(-0.9, 0.9), r = catRand(4.5, 6.5), px = dx + Math.sin(q) * r, pz = dz + Math.cos(q) * r;
       if (catSpotClear(px, pz, 0.5)) { near = [px, pz]; break; }
     }
-    c.callFood({ x, z, dx, dz, until: now + 11 + i * 0.8 }, near);
+    c.callFood({ x, z, dx, dz, eat: 8 + i * 1.2, until: Infinity }, near);
   });
 }
 function catRoute() {
@@ -2182,7 +2202,7 @@ function catRoute() {
   return { points };
 }
 const catEnv = {
-  obstacles: OBSTACLES, people,
+  get obstacles() { return mode === 'garden' ? [...OBSTACLES, ...garden.rimRocks] : OBSTACLES; }, people,
   route: catRoute,
   exit: () => catEdge(Math.floor(Math.random() * 3)),
   nextWait: () => catRand(10, 45),
@@ -2197,7 +2217,7 @@ function catsReset() { catDish.visible = false; dishUntil = 0; strays.forEach((c
 function catsTick(dt, t) {
   if (mode !== 'garden' && mode !== 'mary') return;
   strays.forEach((c) => c.update(dt, t, catEnv));
-  if (catDish.visible && t > dishUntil && !strays.some((c) => c.eating)) {
+  if (catDish.visible && t > dishUntil && !strays.some((c) => c.food)) {
     const k = catDish.scale.x - dt * 1.5;
     if (k <= 0.02) catDish.visible = false; else catDish.scale.setScalar(k);
   }
@@ -2637,11 +2657,11 @@ function enter(kind = 'temple') {
   if (kind === 'cathedral') {
     $('btnStoneLabel').textContent = '촛불 봉헌'; $('btnStone').title = '성모상 앞에 촛불 봉헌하기';
     $('btnStone').querySelector('svg').innerHTML = '<path d="M9 21h6M10 21V11h4v10M12 11V9M12 3c-1.6 2-2 3-2 4a2 2 0 0 0 4 0c0-1-.4-2-2-4z"/>';
-    $('btnFeed').title = '비둘기에게 모이 주기';
+    $('btnFeed').title = '비둘기와 고양이에게 모이 주기';
     $('btnFeed').querySelector('svg').innerHTML = '<path d="M3 15c3 3 8 3 11 0l7-7-5 1-2-3c-2 0-4 2-4 4l-7 5zM14 6l-1-2"/>';
     $('btnTowerLabel').textContent = '묵주 걷기'; $('btnTower').title = '분수를 오른쪽에 두고 세 바퀴 걷기';
     $('btnTower').querySelector('svg').innerHTML = '<circle cx="12" cy="12" r="8" stroke-dasharray="2 3"/><path d="M12 9v6M10 11h4"/>';
-    $('bulduLabel').textContent = '성모상 찾아가기'; $('bulduBtn').title = '성모상 앞으로 걸어가기';
+    $('bulduLabel').textContent = '성모상'; $('bulduBtn').title = '성모상 앞으로 걸어가기';
     $('bulduBtn').querySelector('svg').innerHTML = '<path d="M12 3a3 3 0 0 1 3 3v3l3 11H6L9 9V6a3 3 0 0 1 3-3z"/>';
     // 수도복 차림으로 바꾸고 이웃을 성당 의자로 옮긴다
     place = kind;

@@ -254,8 +254,8 @@ export class Cat {
       if (this.pause <= 0) this.sitTo = 0;
     } else if (this.sitK > 0.1) {
       // 일어나는 중
-    } else if (d < (running ? 0.16 : 0.5)) {
-      if (running) { this.eating = true; this.eatTo = 1; }
+    } else if (d < (running ? 0.22 : 0.5)) {
+      if (running) { this.eating = true; this.eatTo = 1; this.food.until = t + this.food.eat; }
       else if (last) { this.hide(env.nextWait()); return; }
       else {
       this.i++; this.bestD = Infinity; this.bestAt = t;
@@ -282,14 +282,16 @@ export class Cat {
       if (big) avoid(big[0], big[1], big[2], 1.6);
       if (!running || d > 1.3) for (const p of env.people()) avoid(p.x, p.z, 0.75, 1.3);
       const to = Math.atan2(vx, vz);
-      this.yaw += wrap(to - this.yaw) * (1 - Math.exp(-5 * dt));
-      const sp = (running ? 2.3 : 1.05) * dt;
+      // 그릇 앞에서는 속도를 줄이고 바로 틀어 그 자리를 맴돌지 않는다
+      const close = running && d < 1.2;
+      this.yaw += wrap(to - this.yaw) * (1 - Math.exp(-(close ? 16 : 5) * dt));
+      const sp = (running ? Math.min(2.3, 0.6 + d * 1.5) : 1.05) * dt;
       this.x += Math.sin(this.yaw) * sp; this.z += Math.cos(this.yaw) * sp;
       moving = 1;
       if (d < this.bestD - 0.25) { this.bestD = d; this.bestAt = t; }
-      if (t - this.bestAt > 7) {
-        // 막혔으면 다음 지점으로, 마지막이면 조용히 사라진다
-        if (running && d < 1.5) { this.eating = true; this.eatTo = 1; this.bestAt = t; }
+      if (t - this.bestAt > (running ? 3.5 : 7)) {
+        // 막혔으면 다음 지점으로, 마지막이면 조용히 사라진다. 밥그릇으로 가던 길이 막히면 그 앞에 다시 나타난다
+        if (running) { if (d > 1.5) { this.x = wx; this.z = wz; this.scale = 0; } this.eating = true; this.eatTo = 1; this.bestAt = t; this.food.until = t + this.food.eat; }
         else if (last) { this.hide(env.nextWait()); return; }
         else
         this.i++; this.bestD = Infinity; this.bestAt = t;

@@ -108,7 +108,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-prim
 .gate-card { width: min(370px, 100%); border-radius: 26px; padding: 30px 26px 22px; text-align: center; animation: rise .8s var(--ease) both; }
 .eyebrow { margin: 0; font-size: 13px; font-weight: 600; color: var(--gold); letter-spacing: 3px; }
 .gate-card h1 { margin: 4px 0 8px; font-size: 44px; font-weight: 800; letter-spacing: -.3px; }
-.lead { margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #334155; }
 .gate-card label { display: block; text-align: left; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
 .name-row { display: flex; gap: 8px; margin-bottom: 14px; }
 .name-row input {
@@ -234,8 +233,7 @@ input[type=range] { width: 100%; height: 26px; margin: 0; accent-color: var(--ac
 #skyBtn { top: calc(env(safe-area-inset-top) + 158px); }
 #ambBtn { top: calc(env(safe-area-inset-top) + 110px); }
 #ambBtn.below { top: calc(env(safe-area-inset-top) + 206px); }
-#bulduBtn { top: calc(env(safe-area-inset-top) + 254px); }
-#starBtn { top: calc(env(safe-area-inset-top) + 302px); }
+#starBtn { top: calc(env(safe-area-inset-top) + 254px); }
 #starBtn[aria-pressed="true"] { background: var(--accent-primary); color: #fff; }
 #starBtn[aria-pressed="true"] svg { color: #fff; }
 .const-block { margin-top: 12px; }
@@ -297,3 +295,8 @@ input[type=range] { width: 100%; height: 26px; margin: 0; accent-color: var(--ac
 body.talk-on #toast { bottom: calc(env(safe-area-inset-bottom) + 216px); }
 @media (max-width: 420px) { #talkText { font-size: 14px; } #talkBar { bottom: calc(env(safe-area-inset-bottom) + 84px); } }
 @media (max-width: 420px) { #dock button span { white-space: nowrap; letter-spacing: -.06em; } }
+
+/* 좁은 화면의 정원에서는 하단 메뉴가 넘치므로 염주, 앉기, 소리 고르기를 뺀다 */
+@media (max-width: 470px) {
+  #dock.outside #btnSit, #dock.outside #btnBeads, #dock.outside #btnChant { display: none; }
+}

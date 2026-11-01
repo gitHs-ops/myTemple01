@@ -180,11 +180,13 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
   // 바위
   const rockMats = [];
   const rockMat = () => { const m = new THREE.MeshLambertMaterial({ color: 0x8f8c84, flatShading: true }); rockMats.push(m); return m; };
+  const rimRocks = [];   // 사람은 앉을 수 있어 막지 않지만 고양이는 돌아가고, 시야도 가린다
   for (let i = 0; i < 9; i++) {
     const a = (i / 9) * 6.28 + 0.4, R = pondR(a) + r(0.7, 1.1);
     if (i % 3 !== 0) continue;
     const big = mesh(rockGeo, rockMat(), POND.x + Math.sin(a) * R, GROUND_Y + 0.42, POND.z + Math.cos(a) * R, root);
     big.scale.set(r(0.75, 1.15), r(0.5, 0.8), r(0.75, 1.1)); big.rotation.set(r(0, 1), r(0, 6), 0);
+    rimRocks.push([big.position.x, big.position.z, 1.1]);
   }
   [[-1.4, 41], [9, 42], [-19, 18.5], [18, 18]].forEach(([x, z]) => {
     const b = mesh(rockGeo, rockMat(), x, GROUND_Y + 0.5, z, root);
@@ -409,7 +411,7 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
   const updateFlies = () => { flyCore.visible = flyHalo.visible = active && seasonNow === 'summer' && nightNow > 0.7; };
 
   return {
-    seats, colliders,
+    seats, colliders, rimRocks,
     setActive(on) { active = on; if (fallNow) fall[fallNow.kind].visible = on && !fallHide; updateFlies(); fxDirty = true; },
     setFallHidden(on) { if (on === fallHide) return; fallHide = on; if (fallNow) fall[fallNow.kind].visible = active && !on; fxDirty = true; },
     setSeason(k) {
