@@ -1172,8 +1172,13 @@ function drawTracks(loadingId = null) {
     markList(list, sound.chantId || null, (id, on) => (id && id === loadingId ? '불러오는 중…' : on && id ? '재생 중' : ''));
   }
   $('btnChant').setAttribute('aria-pressed', String(!!sound.chantId));
+  $('setChant').value = sound.chantId || '';
 }
-const drawAmbients = () => markList('ambList', state.ambient, (id, on) => (on && id !== 'off' ? '재생 중' : ''));
+const drawAmbients = () => {
+  markList('ambList', state.ambient, (id, on) => (on && id !== 'off' ? '재생 중' : ''));
+  $('setAmb').value = state.ambient;
+};
+function pickAmbient(id) { state.ambient = id; save(); sound.setAmbient(id); drawAmbients(); }
 function playTrack(id) {
   if (TRACKS.some((x) => x.id === id)) { state.chantTrack = id; save(); }   // 예불 때는 염불만 튼다
   const run = sound.playChant(id);
@@ -1206,7 +1211,7 @@ function fillList(listId, items, onPick) {
 }
 fillList('trackList', [...TRACKS, { id: null, name: '끄기', desc: '조용히 머뭅니다' }], (id) => { chantUntil = 0; playTrack(id); });
 fillList('medList', [...MEDITATIONS, { id: null, name: '끄기', desc: '조용히 머뭅니다' }], (id) => { chantUntil = 0; playTrack(id); });
-fillList('ambList', AMBIENTS, (id) => { state.ambient = id; save(); sound.setAmbient(id); drawAmbients(); });
+fillList('ambList', AMBIENTS, pickAmbient);
 function soundTab(which) {
   for (const [tab, panel, key] of [['tabChant', 'panelChant', 'chant'], ['tabMed', 'panelMed', 'med'], ['tabAmb', 'panelAmb', 'amb']]) {
     $(tab).setAttribute('aria-selected', String(which === key));
@@ -1301,7 +1306,33 @@ $('modeBtn').onclick = () => {
     setTimeout(() => { fade.classList.remove('on'); switching = false; }, 60);
   }, wait);
 };
-$('openSettings').onclick = () => openModal('settingsModal');
+/* 설정 창의 선택 상자 */
+{
+  const option = (parent, value, text) => { const o = document.createElement('option'); o.value = value; o.textContent = text; parent.append(o); };
+  const group = (label, items) => {
+    const g = document.createElement('optgroup'); g.label = label;
+    items.forEach((x) => option(g, x.id, x.name));
+    $('setChant').append(g);
+  };
+  AMBIENTS.forEach((x) => option($('setAmb'), x.id, x.name));
+  option($('setChant'), '', '끄기');
+  group('염불', TRACKS);
+  group('명상', MEDITATIONS);
+  option($('setSeason'), 'auto', '오늘 날짜에 맞추기');
+  Object.entries(SEASONS).forEach(([id, c]) => option($('setSeason'), id, c.name));
+}
+$('setAmb').onchange = () => pickAmbient($('setAmb').value);
+$('setChant').onchange = () => { chantUntil = 0; playTrack($('setChant').value || null); };
+$('setSeason').onchange = () => pickSeason($('setSeason').value);
+$('setVoice').onchange = () => {
+  state.voiceOn = $('setVoice').checked; save();
+  if (state.voiceOn) speak('일 배'); else window.speechSynthesis?.cancel();
+};
+$('openSettings').onclick = () => {
+  drawTracks(); drawAmbients(); drawSeasons();
+  $('setVoice').checked = state.voiceOn;
+  openModal('settingsModal');
+};
 /* 연속 절 고르기 */
 const BOW_SECONDS = 5.15;
 const vowTime = (goal) => {
@@ -1355,13 +1386,16 @@ $('skyBtn').onclick = () => {
 fillList('seasonList', [
   { id: 'auto', name: '오늘 날짜에 맞추기', desc: '3~5월 봄, 6~8월 여름, 9~11월 가을, 12~2월 겨울' },
   ...Object.entries(SEASONS).map(([id, c]) => ({ id, name: c.name, desc: c.desc })),
-], (id) => {
+], pickSeason);
+function pickSeason(id) {
   state.season = id; save();
   params.delete('season');
   applySeason(); drawSeasons();
-});
+}
 function drawSeasons() {
   markList('seasonList', state.season, (id, on) => (on && id === 'auto' ? `지금 ${SEASONS[seasonNow].name}` : on ? '선택됨' : ''));
+  $('setSeason').options[0].textContent = `오늘 날짜에 맞추기 (지금 ${SEASONS[autoSeason()].name})`;
+  $('setSeason').value = SEASONS[state.season] ? state.season : 'auto';
 }
 $('seasonBtn').onclick = () => { drawSeasons(); openModal('seasonModal'); };
 
