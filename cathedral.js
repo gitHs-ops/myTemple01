@@ -213,21 +213,21 @@ export function buildCathedral({ scene, mesh, std, canvasTex, seatGroup }) {
   door.castShadow = false;
 
   /* ───────── 긴 의자 ───────── */
-  const benchSeat = new THREE.BoxGeometry(3.7, 0.1, 0.52), benchBack = new THREE.BoxGeometry(3.7, 0.72, 0.07), benchEnd = new THREE.BoxGeometry(0.09, 1.08, 0.62), kneeler = new THREE.BoxGeometry(3.5, 0.08, 0.2);
-  const padGeo = new THREE.BoxGeometry(0.86, 0.05, 0.46), padMat = std(0x8b2430, { roughness: 1 });
-  const ROWS = [-7, -4.8, -2.6, -0.4, 1.8, 4, 6.2];
+  const benchSeat = new THREE.BoxGeometry(3.7, 0.1, 1.16), benchBack = new THREE.BoxGeometry(3.7, 0.8, 0.08), benchEnd = new THREE.BoxGeometry(0.09, 1.2, 1.3), benchLeg = new THREE.BoxGeometry(3.5, 0.41, 0.1);
+  const padGeo = new THREE.BoxGeometry(1.06, 0.05, 0.98), padMat = std(0x8b2430, { roughness: 1 });
+  const ROWS = [-7, -4.4, -1.8, 0.8, 3.4, 6];
   ROWS.forEach((d) => {
     const z = Z(d);
     [-1, 1].forEach((s) => {
       const cx = s * 3.15;
-      mesh(benchSeat, woodMat, cx, 0.46, z, root);
-      mesh(benchBack, woodMat, cx, 0.82, z + 0.3, root);
-      mesh(kneeler, darkWood, cx, 0.14, z - 0.5, root);
-      [-1, 1].forEach((e) => mesh(benchEnd, darkWood, cx + e * 1.88, 0.54, z + 0.03, root));
-      [1.7, 2.7, 3.7, 4.7].forEach((ax) => colliders.push([s * ax, z + 0.05, 0.46, true]));
+      mesh(benchSeat, woodMat, cx, 0.46, z + 0.02, root);
+      mesh(benchBack, woodMat, cx, 0.9, z + 0.6, root);
+      mesh(benchLeg, darkWood, cx, 0.205, z + 0.5, root);
+      [-1, 1].forEach((e) => mesh(benchEnd, darkWood, cx + e * 1.88, 0.6, z + 0.03, root));
+      [1.7, 2.7, 3.7, 4.7].forEach((ax) => colliders.push([s * ax, z + 0.08, 0.64, true]));
       [2.2, 4.1].forEach((ax) => {
-        const m = mesh(padGeo, padMat, s * ax, 0.535, z, seatGroup);
-        seats.push({ x: s * ax, z, yaw: Math.PI, h: 0.5, zone: 'cathedral', mesh: m, by: null });
+        const m = mesh(padGeo, padMat, s * ax, 0.535, z - 0.02, seatGroup);
+        seats.push({ x: s * ax, z, yaw: Math.PI, h: 0.64, zone: 'cathedral', mesh: m, by: null });
       });
     });
   });

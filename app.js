@@ -3,8 +3,8 @@ import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=10';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=7';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
-import { CATHEDRAL, buildCathedral } from './cathedral.js?v=1';
-import { BULDU, buildBuldu } from './buldu.js?v=2';
+import { CATHEDRAL, buildCathedral } from './cathedral.js?v=2';
+import { BULDU, buildBuldu } from './buldu.js?v=3';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -943,6 +943,21 @@ function setTarget(c, x, z, cush = null, onArrive = null) {
 function freeCushion(c) {
   if (c.cushion != null) { cushions[c.cushion].by = null; c.cushion = null; }
   if (c.target?.cush != null) { cushions[c.target.cush].by = null; }
+  if (c.target?.seat != null) { cushions[c.target.seat].by = null; }
+}
+const PEW_FRONT = 1.24, PEW_AISLE = 0.6;
+function walkToSeat(c, i, done = null) {
+  const q = cushions[i];
+  if (q.zone !== 'cathedral') { setTarget(c, q.x, q.z, i, done); return; }
+  const front = q.z - PEW_FRONT;
+  const leg = (x, next) => { setTarget(c, x, front, null, next); c.target.seat = i; q.by = c; c.freshTarget = true; };
+  const along = () => leg(q.x, () => setTarget(c, q.x, q.z, i, done));
+  if (Math.abs(c.z - front) < 0.5) along();
+  else leg(q.x > 0 ? PEW_AISLE : -PEW_AISLE, along);
+}
+// 앉았던 긴 의자에서 앞으로 나온다
+function leavePew(c, q, done = null) {
+  setTarget(c, q.x, q.z - PEW_FRONT, null, done);
 }
 function startBow(c) {
   if (c.bowT != null || c.target) return false;
@@ -980,7 +995,7 @@ function updateMonk(c, dt, t) {
     done?.();
   };
   const giveUp = () => {
-    const cu = c.target.cush;
+    const cu = c.target.cush ?? c.target.seat;
     if (cu != null) cushions[cu].by = null;
     c.target = null; c.onArrive = null;
     if (c.mine) marker.visible = false;
@@ -1143,14 +1158,18 @@ function addNpc(seated) {
     if (Math.random() < 0.4) n.bowT = Math.random() * 0.8;
   } else {
     n.x = rand(-2.8, 2.8); n.z = HALLS[place].door; n.pop = 0.01;
-    setTarget(n, cushions[i].x, cushions[i].z, i);
+    walkToSeat(n, i);
   }
   npcs.push(n);
 }
 function leaveNpc(n) {
   if (n.leaving) return;
   n.leaving = true;
-  setTarget(n, rand(-2.8, 2.8), HALLS[place].door, null, () => { n.gone = true; });
+  const out = () => setTarget(n, rand(-2.8, 2.8), HALLS[place].door, null, () => { n.gone = true; });
+  const q = n.cushion != null ? cushions[n.cushion] : null;
+  if (q?.zone !== 'cathedral') { out(); return; }
+  const front = q.z - PEW_FRONT;
+  leavePew(n, q, () => setTarget(n, q.x > 0 ? PEW_AISLE : -PEW_AISLE, front, null, out));
 }
 function disposeNpc(n) {
   scene.remove(n.root);
@@ -1306,18 +1325,18 @@ function goToBuldu() {
     skyGoal = { phi: 1.42, dist: 18, theta: BULDU.viewTheta };
     atBuldu = true;
     updateSitBtn();
-    toast('청동 불두 앞에 왔습니다. 합장해 보세요', 4000);
+    toast('청동 불상 앞에 왔습니다. 합장해 보세요', 4000);
   });
   marker.position.set(x, heightAt(z) + 0.03, z); marker.visible = true; marker.scale.setScalar(1);
   updateSitBtn();
-  toast('청동 불두를 찾아갑니다');
+  toast('청동 불상을 찾아갑니다');
 }
 function goToCushion(i) {
   const c = cushions[i];
   if (c.zone !== mode) return;
   if (c.by && c.by !== player) { toast('다른 분이 앉아 있는 자리입니다'); return; }
   stopAuto();
-  setTarget(player, c.x, c.z, i, updateSitBtn);
+  walkToSeat(player, i, updateSitBtn);
   marker.visible = false; updateSitBtn();
 }
 function nearestFreeCushion() {
@@ -1406,7 +1425,7 @@ function updateHud() {
   $('statRounds').textContent = state.rounds.toLocaleString();
 }
 function updateSitBtn() {
-  const seated = player && (player.cushion != null || player.target?.cush != null);
+  const seated = player && (player.cushion != null || player.target?.cush != null || player.target?.seat != null);
   $('btnSitLabel').textContent = seated ? '일어서기' : '앉기';
 }
 function doHap() {
@@ -1478,8 +1497,10 @@ $('btnAuto').onclick = () => {
   drawVows(); openModal('vowModal');
 };
 $('btnSit').onclick = () => {
-  if (player.cushion != null || player.target?.cush != null) {
+  if (player.cushion != null || player.target?.cush != null || player.target?.seat != null) {
+    const pew = player.cushion != null && cushions[player.cushion].zone === 'cathedral' ? cushions[player.cushion] : null;
     stopAuto(); freeCushion(player); player.cushion = null; player.target = null; player.sitTo = 0; player.hapTo = 0;
+    if (pew) leavePew(player, pew, updateSitBtn);
     updateSitBtn(); return;
   }
   const i = nearestFreeCushion();
@@ -2065,7 +2086,7 @@ function updateCamera(dt) {
   camera.position.copy(camPos);
   skyLookK = snap ? 0 : damp(skyLookK, skyBack ? 1 : 0, 2.4, dt);
   if (atBuldu && (player.target || keys.size)) { atBuldu = false; skyGoal = bulduBack; }
-  bulduLift = snap ? 0 : damp(bulduLift, atBuldu ? 4.8 : 0, 2.4, dt);   // 큰 불두가 화면에 들어오게 올려다본다
+  bulduLift = snap ? 0 : damp(bulduLift, atBuldu ? 3.4 : 0, 2.4, dt);   // 큰 불상이 화면에 들어오게 올려다본다
   const lookY = camTarget.y + 0.75 - 1.1 * poseK + bulduLift + Math.max(0, camPhi - 1.5) * 3.2;
   if (skyLookK > 0.001) {
     const ce = Math.cos(skyEl);   // 카메라에서 하늘 쪽으로 향하는 점으로 시선을 옮긴다
@@ -2185,5 +2206,5 @@ $('enterBtn').textContent = '법당에 들어가기';
 $('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => { const q = cushions[i]; setTarget(player, q.x, q.z, i); }, get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
