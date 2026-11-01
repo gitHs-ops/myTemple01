@@ -835,12 +835,82 @@ function pushOut(c, dx, dz, sp) {
     const m = slide(ax, az, Math.hypot(ax, az), R);
     if (m) { c.x = POND.x + m[0]; c.z = POND.z + m[1]; }
   }
+  for (const o of people()) {
+    if (o === c) continue;
+    const ax = c.x - o.x, az = c.z - o.z, m = slide(ax, az, Math.hypot(ax, az), PERSON_R);
+    if (m) { c.x = o.x + m[0]; c.z = o.z + m[1]; }
+  }
+}
+
+/* 길찾기: 앞을 더듬어 물체와 사람을 미리 돌아간다 */
+const PERSON_R = 0.8, AVOID_LOOK = 2.4, OBJ_CLEAR = 0.2, ARRIVE_NEAR = 0.9, GIVE_UP = 14;
+const AVOID_TURNS = [0.3, 0.6, 0.9, 1.2, 1.5, 1.8, 2.2, 2.6];
+const people = () => (player ? [player, ...npcs, ...strollers] : [...npcs, ...strollers]);
+const nearObs = [], nearPeople = [];
+let hitX = 0, hitZ = 0, hitBig = false;   // 앞을 막은 물체의 중심. 큰 것은 한번 고른 방향으로 끝까지 돈다
+function gatherNear(c, look) {
+  nearObs.length = 0; nearPeople.length = 0;
+  for (const q of OBSTACLES) if (Math.hypot(c.x - q[0], c.z - q[1]) < look + q[2] + OBJ_CLEAR) nearObs.push(q);
+  for (const o of people()) if (o !== c && !o.gone && Math.hypot(c.x - o.x, c.z - o.z) < look + PERSON_R + 3) nearPeople.push(o);
+}
+// 0: 뚫림, 1: 물체나 연못, 2: 사람. 이미 가까이 있어도 멀어지는 쪽은 막지 않는다
+function pathHit(c, ux, uz, look, speed) {
+  const zb = ZONES[mode], inZone = c.x >= zb.xMin && c.x <= zb.xMax && c.z >= zb.zMin && c.z <= zb.zMax;
+  for (const f of [0.34, 0.67, 1]) {
+    const s = look * f, px = c.x + ux * s, pz = c.z + uz * s;
+    if (inZone && !c.leaving && (px < zb.xMin || px > zb.xMax || pz < zb.zMin || pz > zb.zMax)) { hitX = c.x; hitZ = c.z; hitBig = false; return 1; }
+    // 물가나 탑 옆 자리는 코앞까지 다가갈 수 있어야 한다
+    const atGoal = Math.hypot(px - c.target.x, pz - c.target.z) < 1.5;
+    if (!atGoal) for (const [ox, oz, R] of nearObs) {
+      const da = Math.hypot(px - ox, pz - oz);
+      if (da < R + OBJ_CLEAR && da < Math.hypot(c.x - ox, c.z - oz)) { hitX = ox; hitZ = oz; hitBig = R > 2; return 1; }
+    }
+    if (!atGoal && (c.z > 13 || pz > 13)) {
+      const ax = px - POND.x, az = pz - POND.z, da = Math.hypot(ax, az);
+      if (da < pondR(Math.atan2(ax, az)) + POND_MARGIN + 0.12 && da < Math.hypot(c.x - POND.x, c.z - POND.z)) { hitX = POND.x; hitZ = POND.z; hitBig = true; return 1; }
+    }
+    const lead = s / speed;
+    for (const o of nearPeople) {
+      const ox = o.x + (o.vx || 0) * lead, oz = o.z + (o.vz || 0) * lead, da = Math.hypot(px - ox, pz - oz);
+      if (da < PERSON_R + 0.25 && da < Math.hypot(c.x - ox, c.z - oz)) return 2;
+    }
+  }
+  return 0;
+}
+function steerDir(c, ux, uz, d, t, speed) {
+  if (d < ARRIVE_NEAR) return [ux, uz];
+  const look = Math.min(AVOID_LOOK, d);
+  gatherNear(c, look);
+  const base = Math.atan2(ux, uz), hit = pathHit(c, ux, uz, look, speed);
+  if (!hit) {
+    if (t > (c.avoidUntil || 0)) c.avoidSide = 0;
+    return [ux, uz];
+  }
+  c.avoidUntil = t + 0.9;
+  // 사람은 서로 오른쪽으로 비켜서 마주 오는 두 사람이 엇갈린다. 한번 고른 쪽은 지나갈 때까지 유지한다
+  // 물체는 목적지까지 더 짧은 쪽으로 돈다
+  let first = c.avoidSide || -1;
+  if (!c.avoidSide && hit === 1 && (hitX !== c.x || hitZ !== c.z)) {
+    const from = Math.atan2(c.x - hitX, c.z - hitZ), to = Math.atan2(c.target.x - hitX, c.target.z - hitZ), way = Math.atan2(Math.sin(to - from), Math.cos(to - from)) >= 0 ? 1 : -1;
+    first = Math.sin(base + 1) * way * Math.cos(from) - Math.cos(base + 1) * way * Math.sin(from) >= 0 ? 1 : -1;
+    if (hitBig) { if (c.wrapSide) first = c.wrapSide; else c.wrapSide = first; }
+  }
+  for (const turn of AVOID_TURNS) {
+    for (const side of c.avoidSide ? [first] : [first, -first]) {
+      const a = base + side * turn, vx = Math.sin(a), vz = Math.cos(a);
+      if (!pathHit(c, vx, vz, look, speed)) { c.avoidSide = side; return [vx, vz]; }
+    }
+  }
+  c.avoidSide = -first;   // 이쪽이 막혔으면 다음에는 반대쪽으로 돈다
+  if (c.wrapSide) c.wrapSide = -first;
+  return [ux, uz];
 }
 const heightAt = (z) => (z > 11.7 ? -Math.min(0.9, (z - 11.7) * 0.45) : 0);
 
 function setTarget(c, x, z, cush = null, onArrive = null) {
   freeCushion(c);
   c.bowT = null; c.sitTo = 0; c.hapTo = 0; c.hapUntil = 0; c.target = { x, z, cush }; c.onArrive = onArrive; c.stuck = 0;
+  c.bestD = Infinity; c.bestAt = performance.now() / 1000; c.avoidSide = 0; c.wrapSide = 0; c.freshTarget = true;
   if (cush != null) cushions[cush].by = c;
 }
 function freeCushion(c) {
@@ -875,23 +945,55 @@ function makeBowl(c) {
 }
 function updateMonk(c, dt, t) {
   let moving = 0;
+  const startX = c.x, startZ = c.z;
+  const arrive = () => {
+    if (c.target.cush != null) { c.cushion = c.target.cush; c.sitTo = 1; c.yawTo = cushions[c.cushion].yaw; }
+    const done = c.onArrive; c.target = null; c.onArrive = null;
+    if (c.mine) marker.visible = false;
+    done?.();
+  };
+  const giveUp = () => {
+    const cu = c.target.cush;
+    if (cu != null) cushions[cu].by = null;
+    c.target = null; c.onArrive = null;
+    if (c.mine) marker.visible = false;
+  };
   if (c.target) {
     const dx = c.target.x - c.x, dz = c.target.z - c.z, d = Math.hypot(dx, dz);
-    if (d < 0.08) {
-      if (c.target.cush != null) { c.cushion = c.target.cush; c.sitTo = 1; c.yawTo = cushions[c.cushion].yaw; }
-      const done = c.onArrive; c.target = null; c.onArrive = null;
-      if (c.mine) marker.visible = false;
-      done?.();
+    const blocker = d < PERSON_R + 0.5 ? people().find((o) => o !== c && Math.hypot(o.x - c.target.x, o.z - c.target.z) < PERSON_R) : null;
+    if (d < 0.08 || (blocker && c.target.cush == null)) arrive();   // 목적지에 누가 서 있으면 그 앞에서 멈춘다
+    else if (blocker) {
+      // 앉을 자리에 서 있는 사람은 비켜 주고, 그동안 기다린다
+      if (!blocker.mine && !blocker.target && blocker.cushion == null) {
+        const ax = blocker.x - c.target.x, az = blocker.z - c.target.z, al = Math.hypot(ax, az) || 1;
+        const [nx, nz] = clampToZone(c.target.x + (ax || al) / al * 1.8, c.target.z + az / al * 1.8);
+        setTarget(blocker, nx, nz);
+      }
+      c.yawTo = Math.atan2(dx, dz);
+      if (t - c.bestAt > GIVE_UP) giveUp();
     } else {
-      const sp = (c.mine ? 3 : 2.1) * dt, ox = c.x, oz = c.z;
-      c.x += (dx / d) * Math.min(sp, d); c.z += (dz / d) * Math.min(sp, d);
-      pushOut(c, dx, dz, sp);
-      c.yawTo = Math.atan2(dx, dz); moving = 1;
+      const speed = c.mine ? 3 : 2.1, sp = speed * dt, ox = c.x, oz = c.z;
+      const [wx, wz] = steerDir(c, dx / d, dz / d, d, t, speed);
+      // 방향을 부드럽게 틀어 지그재그를 막는다
+      const k = 1 - Math.exp(-9 * dt);
+      c.dirX = c.dirX == null || c.stuck === 0 && c.freshTarget ? wx : c.dirX + (wx - c.dirX) * k;
+      c.dirZ = c.dirZ == null || c.stuck === 0 && c.freshTarget ? wz : c.dirZ + (wz - c.dirZ) * k;
+      c.freshTarget = false;
+      const dl = Math.hypot(c.dirX, c.dirZ) || 1, mx = c.dirX / dl, mz = c.dirZ / dl;
+      c.x += mx * Math.min(sp, d); c.z += mz * Math.min(sp, d);
+      pushOut(c, mx, mz, sp);
+      c.yawTo = Math.atan2(mx, mz); moving = 1;
       c.stuck = Math.hypot(c.x - ox, c.z - oz) < sp * 0.2 ? c.stuck + dt : 0;
-      if (c.stuck > 0.8) { const cu = c.target.cush; if (cu != null) cushions[cu].by = null; c.target = null; c.onArrive = null; if (c.mine) marker.visible = false; }
+      if (d < c.bestD - 0.2) { c.bestD = d; c.bestAt = t; }
+      if (c.stuck > 0.8 || t - c.bestAt > GIVE_UP) {
+        // 목적지 코앞을 누가 막고 있으면 다 온 것으로 친다
+        if (d < 1.2 && c.target.cush == null) arrive();
+        else giveUp();
+      }
     }
   }
   moveKeys(c, dt, () => { moving = 1; });
+  if (dt > 0) { c.vx = (c.x - startX) / dt; c.vz = (c.z - startZ) / dt; }
 
   let dy = c.yawTo - c.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
   c.yaw += dy * (1 - Math.exp(-9 * dt));
@@ -1057,7 +1159,7 @@ function communityTick(t) {
 
 /* 정원을 거니는 동자승 */
 const strollers = [];
-const WAY = [[0, 18], [2.8, 26], [1.5, 37], [-3, 43], [-11, 41.5], [9, 37], [8.5, 28], [7, 15.6], [-9, 19], [-14, 21], [-1, 30]];
+const WAY = [[0, 18], [2.8, 26], [1.5, 37], [-3, 43], [-11, 41.5], [9, 37], [8.5, 28], [7, 15.6], [-9, 19], [-14, 21], [1, 32.5]];
 function strollerTick(t) {
   const want = state.npc ? 3 : 0;
   while (strollers.length < want) {
@@ -1986,5 +2088,5 @@ $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => { const q = cushions[i]; setTarget(player, q.x, q.z, i); }, get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
