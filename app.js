@@ -1,7 +1,8 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=9';
-import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=3';
+import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=4';
+import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -17,7 +18,7 @@ const KEY = 'goyoam.v1';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 사생활 모드 등 */ } };
 const state = Object.assign(
-  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, season: 'auto', vows: {}, voiceOn: true, voiceVol: 80, chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
+  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, season: 'auto', fall: { summer: 'green', autumn: 'maple' }, vows: {}, voiceOn: true, voiceVol: 80, chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
   (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })()
 );
 const rollDay = () => { if (state.day !== today()) { state.day = today(); state.bowsToday = 0; save(); updateHud(); } };
@@ -154,6 +155,106 @@ const stars = (() => {
 })();
 scene.add(stars);
 
+/* 별자리: 실제 좌표의 밝은 별과 선, 이름. 계절 저녁 하늘에 맞춰 놓는다 */
+const SKY_R = 370;
+const constGroup = new THREE.Group(); constGroup.visible = false; scene.add(constGroup);
+let constStars = null, constShown = [], constK = 0, constSel = null;
+function buildConstellations(season) {
+  constGroup.clear();
+  constStars?.geometry.dispose();
+  constShown.forEach((c) => { c.line.geometry.dispose(); c.line.material.dispose(); c.label.material.map.dispose(); c.label.material.dispose(); });
+  constShown = []; constSel = null;
+  const lst = SKY_LST[season], pos = [], size = [], tint = [], seed = [];
+  const TINT = [[0.92, 0.95, 1], [1, 0.74, 0.5], [0.72, 0.84, 1]];
+  for (const c of CONSTELLATIONS) {
+    const P = {};
+    for (const [k, [ra, dec]] of Object.entries(c.stars)) P[k] = new THREE.Vector3(...starDir(ra, dec, lst)).multiplyScalar(SKY_R);
+    const all = Object.values(P), mid = all.reduce((a, b) => a.add(b), new THREE.Vector3()).normalize();
+    if (mid.y < 0.2) continue;                   // 이 계절에는 낮거나 지평선 아래
+    const seg = [];
+    for (const path of c.lines) for (let i = 0; i < path.length - 1; i++) {
+      const a = P[path[i]], b = P[path[i + 1]];
+      if (a.y > 8 && b.y > 8) seg.push([a, b]);
+    }
+    for (const [k, [, , mag, t]] of Object.entries(c.stars)) {
+      if (P[k].y < 8) continue;
+      pos.push(P[k].x, P[k].y, P[k].z); size.push(mag < 0.6 ? 6.4 : mag < 1.6 ? 5.2 : mag < 2.6 ? 4 : mag < 3.6 ? 3 : 2.3);
+      tint.push(...TINT[t ?? 0]); seed.push(Math.random() * 6.28);
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(seg.flat());
+    const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xa9c3ff, transparent: true, opacity: 0, depthWrite: false, depthTest: false, fog: false, toneMapped: false }));
+    line.frustumCulled = false; line.renderOrder = -1;
+    const label = constLabel(c.name);
+    label.position.copy(mid).multiplyScalar(SKY_R - 4);
+    constGroup.add(line, label);
+    constShown.push({ c, seg, line, label });
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aSize', new THREE.Float32BufferAttribute(size, 1));
+  g.setAttribute('aTint', new THREE.Float32BufferAttribute(tint, 3));
+  g.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 1));
+  constStars = new THREE.Points(g, stars.material);
+  constStars.renderOrder = -1; constStars.frustumCulled = false; constStars.visible = false;
+  scene.add(constStars);
+}
+function constLabel(text) {
+  const c = document.createElement('canvas'), g = c.getContext('2d'), font = '600 34px Pretendard, "Malgun Gothic", sans-serif';
+  g.font = font; const w = Math.ceil(g.measureText(text).width) + 36; c.width = w; c.height = 56;
+  g.font = font; g.fillStyle = 'rgba(15,23,60,.62)'; g.beginPath(); g.roundRect(0, 0, w, 56, 28); g.fill();
+  g.fillStyle = '#e8efff'; g.textBaseline = 'middle'; g.textAlign = 'center'; g.fillText(text, w / 2, 30);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, opacity: 0, depthWrite: false, depthTest: false, fog: false, toneMapped: false }));
+  sp.renderOrder = 5; sp.scale.set((w / 56) * 9.5, 9.5, 1); sp.userData.ratio = w / 56;
+  return sp;
+}
+function updateConstellations(dt) {
+  if (constStars) constStars.visible = stars.visible;
+  const on = mode === 'garden' && starUni.op.value > 0.5 && (skyBack || orbit.phi > 1.62);
+  constK = damp(constK, on ? 1 : 0, 3, dt);
+  constGroup.visible = constK > 0.01;
+  garden.setFallHidden(constK > 0.3);   // 눈앞의 눈송이와 낙엽이 별을 가리지 않게
+  if (!constGroup.visible) return;
+  for (const s of constShown) {
+    const sel = s === constSel;
+    s.line.material.opacity = (sel ? 0.95 : 0.5) * constK;
+    s.line.material.color.set(sel ? 0xffd98a : 0xa9c3ff);
+    s.label.material.opacity = constK;
+  }
+}
+// 누른 곳에서 가까운 별자리 이름이나 선을 찾는다 (화면 픽셀 기준)
+function pickConstellation(cx, cy) {
+  const r = canvas.getBoundingClientRect(), a = new THREE.Vector3(), b = new THREE.Vector3();
+  const toPx = (v) => { v.project(camera); return v.z < 1 ? [(v.x + 1) / 2 * r.width + r.left, (1 - v.y) / 2 * r.height + r.top] : null; };
+  let best = null, bestD = 34;
+  for (const s of constShown) {
+    const l = toPx(a.copy(s.label.position));
+    if (l) {
+      const halfH = 16, halfW = halfH * s.label.userData.ratio;
+      const d = Math.hypot(Math.max(0, Math.abs(cx - l[0]) - halfW), Math.max(0, Math.abs(cy - l[1]) - halfH));
+      if (d < bestD) { bestD = d; best = s; }
+    }
+    for (const [p, q] of s.seg) {
+      const A = toPx(a.copy(p)), B = toPx(b.copy(q));
+      if (!A || !B) continue;
+      const dx = B[0] - A[0], dy = B[1] - A[1], t = clamp(((cx - A[0]) * dx + (cy - A[1]) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+      const d = Math.hypot(cx - (A[0] + dx * t), cy - (A[1] + dy * t));
+      if (d < bestD) { bestD = d; best = s; }
+    }
+  }
+  return best;
+}
+function showConstellation(s) {
+  constSel = s;
+  const c = s.c;
+  $('constTitle').textContent = c.name;
+  $('constLatin').textContent = `${c.latin} · ${c.when}`;
+  $('constStar').textContent = c.star;
+  $('constFind').textContent = c.find;
+  $('constStory').textContent = c.story;
+  openModal('constModal');
+}
+
 const SKY = [
   { h: 0, top: '#0b1430', bot: '#1f2c52', fog: '#1b2746', hemi: 0.75, sun: 0.15, sunC: '#8fa6ff', glow: 1 },
   { h: 5, top: '#1d2a58', bot: '#77708f', fog: '#55587a', hemi: 0.85, sun: 0.25, sunC: '#b8b3ff', glow: 0.9 },
@@ -164,14 +265,16 @@ const SKY = [
   { h: 21, top: '#0e1736', bot: '#25335c', fog: '#1f2b4c', hemi: 0.78, sun: 0.15, sunC: '#8fa6ff', glow: 1 },
   { h: 24, top: '#0b1430', bot: '#1f2c52', fog: '#1b2746', hemi: 0.75, sun: 0.15, sunC: '#8fa6ff', glow: 1 },
 ];
-let lanternGlow = 0, gardenSky = null;
+let lanternGlow = 0, gardenSky = null, skyHour = null, realHour = 12;
 const lanternMats = [];
 const cA = new THREE.Color(), cB = new THREE.Color();
 const mixHex = (a, b, t, out) => out.copy(cA.set(a)).lerp(cB.set(b), t);
 function applyTime() {
   const d = new Date();
   const forced = parseFloat(params.get('hour'));
-  const h = Number.isFinite(forced) ? forced : d.getHours() + d.getMinutes() / 60;
+  const clock = Number.isFinite(forced) ? forced : d.getHours() + d.getMinutes() / 60;
+  realHour = clock;
+  const h = skyHour ?? clock;
   let i = SKY.findIndex((k, n) => h >= k.h && h < SKY[n + 1]?.h);
   if (i < 0) i = 0;
   const a = SKY[i], b = SKY[i + 1], t = (h - a.h) / (b.h - a.h);
@@ -626,6 +729,7 @@ function applySeason() {
   if (LEAVES) leafMesh.instanceColor.needsUpdate = true;
   leafMesh.count = Math.min(LEAVES, c.fallN);
   garden.setSeason(k);
+  buildConstellations(k);
   const label = document.getElementById('seasonLabel');
   if (label) label.textContent = c.name;
 }
@@ -804,6 +908,7 @@ function updateMonk(c, dt, t) {
   c.upper.position.y = lift;
   c.body.position.y = -0.2 * low + 0.22 * down + Math.sin(t * 1.4 + c.phase) * 0.006;
   c.label.position.y = c.body.position.y + 1.87 + lift;
+  if (c.mine) c.label.visible = !skyBack;
   c.body.scale.set(1 + 0.1 * low, 1 - 0.05 * low, 1 + 0.1 * low);
   c.body.rotation.x = 1.32 * down;
   c.body.rotation.z = Math.sin(c.phase) * 0.05 * c.walk;
@@ -926,14 +1031,14 @@ function strollerTick(t) {
 /* ───────── 입력 ───────── */
 const orbit = { theta: 0, phi: 1.22, dist: 8.2 };
 const SKY_PHI = 2.15;
-let skyGoal = null, skyBack = null;
+let skyGoal = null, skyBack = null, skyEl = 0.8, skyLookK = 0;   // 하늘 보기에서는 고개 각도(skyEl)로 둘러본다
 const camTarget = new THREE.Vector3(0, 1.15, 7);
 const pointers = new Map();
 let tap = null, pinch = 0;
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitV = new THREE.Vector3();
 let entered = false;
-const modalOpen = () => !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden || !$('seasonModal').hidden || !$('vowModal').hidden;
+const modalOpen = () => !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden || !$('seasonModal').hidden || !$('vowModal').hidden || !$('constModal').hidden;
 
 canvas.addEventListener('pointerdown', (e) => {
   if (!entered) return;
@@ -953,8 +1058,11 @@ canvas.addEventListener('pointermove', (e) => {
   if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap.moved = true;
   if (tap?.moved) {
     orbit.theta -= dx * 0.006; poseOff = true;
-    skyGoal = null;
-    orbit.phi = clamp(orbit.phi - dy * 0.005, 0.42, mode === 'garden' ? SKY_PHI : 1.5);
+    if (skyBack) skyEl = clamp(skyEl - dy * 0.004, 0.08, 1.52);
+    else {
+      skyGoal = null;
+      orbit.phi = clamp(orbit.phi - dy * 0.005, 0.42, mode === 'garden' ? SKY_PHI : 1.5);
+    }
   }
 });
 const endPointer = (e) => {
@@ -968,6 +1076,11 @@ canvas.addEventListener('wheel', (e) => { e.preventDefault(); if (entered) orbit
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function handleTap(cx, cy) {
+  if (mode === 'garden' && constK > 0.5) {
+    const s = pickConstellation(cx, cy);
+    if (s) { showConstellation(s); return; }
+    if (skyBack) { toast('별자리 선이나 이름을 눌러 보세요', 2500); return; }
+  }
   const r = canvas.getBoundingClientRect();
   ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
@@ -1336,6 +1449,7 @@ function applyMode(next) {
   ['btnStone', 'btnFeed', 'seasonBtn', 'skyBtn'].forEach((id) => { $(id).hidden = !inGarden; });
   $('ambBtn').classList.toggle('below', inGarden);
   skyGoal = null; skyBack = null; $('skyLabel').textContent = '하늘 보기';
+  setStarMode(false, true);
   leafMesh.visible = !inGarden;
   garden.setActive(inGarden);
   $('modeLabel').textContent = inGarden ? '법당으로' : '정원으로';
@@ -1372,6 +1486,18 @@ $('modeBtn').onclick = () => {
 $('setAmb').onchange = () => pickAmbient($('setAmb').value);
 $('setChant').onchange = () => { chantUntil = 0; playTrack($('setChant').value || null); };
 $('setSeason').onchange = () => pickSeason($('setSeason').value);
+const FALL_CHOICE = {
+  summer: [['green', '초록 잎'], ['seed', '민들레 홀씨'], ['rain', '여름비'], ['none', '없음']],
+  autumn: [['maple', '단풍잎'], ['ginkgo', '은행잎'], ['rain', '가을비'], ['none', '없음']],
+};
+for (const [season, sel] of [['summer', 'setFallSummer'], ['autumn', 'setFallAutumn']]) {
+  const box = $(sel), items = FALL_CHOICE[season];
+  items.forEach(([id, label]) => { const o = document.createElement('option'); o.value = id; o.textContent = label; box.append(o); });
+  if (!items.some(([id]) => id === state.fall[season])) state.fall[season] = items[0][0];
+  box.value = state.fall[season];
+  box.onchange = () => { state.fall[season] = box.value; save(); garden.setFall(state.fall); };
+}
+garden.setFall(state.fall);
 $('setVoice').onchange = () => {
   state.voiceOn = $('setVoice').checked; save();
   if (state.voiceOn) speak('일 배'); else window.speechSynthesis?.cancel();
@@ -1425,12 +1551,43 @@ $('voiceOn').onchange = () => {
 $('volVoice').oninput = () => { state.voiceVol = +$('volVoice').value; save(); };
 $('volVoice').onchange = () => speak('백팔 배');
 $('skyBtn').onclick = () => {
-  if (skyBack) { skyGoal = skyBack; skyBack = null; $('skyLabel').textContent = '하늘 보기'; return; }
+  if (skyBack) { skyGoal = skyBack; skyBack = null; $('skyLabel').textContent = '하늘 보기'; setStarMode(false); return; }
   skyBack = { phi: orbit.phi, dist: orbit.dist };
   skyGoal = { phi: SKY_PHI, dist: 3.6 };
+  skyEl = 0.8;
   $('skyLabel').textContent = '돌아오기';
-  if (!stars.visible) toast('별과 은하수는 저녁 7시 반쯤부터 새벽 5시 반쯤까지 보입니다', 4000);
+  const night = isRealNight();
+  $('starBtn').hidden = night;
+  toast(night ? STAR_HINT : '별 보기를 누르면 밤하늘로 바뀝니다', 4000);
 };
+/* 별 보기: 낮에도 하늘을 밤으로 바꿔 별자리를 본다 */
+const isRealNight = () => realHour >= 20 || realHour < 5;
+const STAR_HINT = '별자리를 누르면 설명이 나옵니다. 끌어서 둘러보세요';
+const STAR_FADE = 2.2;
+let starMode = false, starAnim = null;
+function setStarMode(on, instant = false) {
+  $('starBtn').setAttribute('aria-pressed', String(on));
+  $('starLabel').textContent = on ? '별 끄기' : '별 보기';
+  if (!on) $('starBtn').hidden = true;
+  if (on === starMode) return;
+  starMode = on;
+  const from = skyHour ?? realHour, to = on ? (realHour < 6 ? 1 : 23) : realHour;
+  if (instant) { starAnim = null; skyHour = on ? to : null; applyTime(); return; }
+  starAnim = { from, to, t: 0 };
+}
+function stepStarAnim(dt) {
+  if (!starAnim) return;
+  starAnim.t = Math.min(1, starAnim.t + dt / STAR_FADE);
+  const k = smooth(0, 1, starAnim.t);
+  skyHour = starAnim.from + (starAnim.to - starAnim.from) * k;
+  if (starAnim.t >= 1) {
+    starAnim = null;
+    if (!starMode) skyHour = null;
+    else toast(STAR_HINT, 4000);
+  }
+  applyTime();
+}
+$('starBtn').onclick = () => setStarMode(!starMode);
 fillList('seasonList', [
   { id: 'auto', name: '오늘 날짜에 맞추기', desc: '3~5월 봄, 6~8월 여름, 9~11월 가을, 12~2월 겨울' },
   ...Object.entries(SEASONS).map(([id, c]) => ({ id, name: c.name, desc: c.desc })),
@@ -1455,7 +1612,7 @@ function openModal(id) {
   $(id).querySelector('.modal-x').focus();
 }
 function closeModals() {
-  ['beadsModal', 'settingsModal', 'chantModal', 'seasonModal', 'vowModal'].forEach((id) => { $(id).hidden = true; });
+  ['beadsModal', 'settingsModal', 'chantModal', 'seasonModal', 'vowModal', 'constModal'].forEach((id) => { $(id).hidden = true; });
   lastFocus?.focus?.(); lastFocus = null;
 }
 document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = closeModals; });
@@ -1583,7 +1740,13 @@ function updateCamera(dt) {
     camTarget.z + camDist * sinP * Math.cos(camTheta)
   );
   camera.position.copy(camPos);
-  camera.lookAt(camTarget.x, camTarget.y + 0.75 - 1.1 * poseK + Math.max(0, orbit.phi - 1.5) * 3.2, camTarget.z);
+  skyLookK = snap ? 0 : damp(skyLookK, skyBack ? 1 : 0, 2.4, dt);
+  const lookY = camTarget.y + 0.75 - 1.1 * poseK + Math.max(0, orbit.phi - 1.5) * 3.2;
+  if (skyLookK > 0.001) {
+    const ce = Math.cos(skyEl);   // 카메라에서 하늘 쪽으로 향하는 점으로 시선을 옮긴다
+    const fx = camPos.x - Math.sin(camTheta) * ce * 10, fy = camPos.y + Math.sin(skyEl) * 10, fz = camPos.z - Math.cos(camTheta) * ce * 10;
+    camera.lookAt(camTarget.x + (fx - camTarget.x) * skyLookK, lookY + (fy - lookY) * skyLookK, camTarget.z + (fz - camTarget.z) * skyLookK);
+  } else camera.lookAt(camTarget.x, lookY, camTarget.z);
 }
 
 const dummy = new THREE.Object3D();
@@ -1602,6 +1765,7 @@ function frame(now) {
   strollerTick(t);
   garden.update(t, dt);
   starUni.time.value = t; starUni.ratio.value = pixelRatio;
+  stepStarAnim(dt); updateConstellations(dt);
   if (!reduceMotion) catBreath.value = 0.007 * (0.5 + 0.5 * Math.sin(t * 2));
   if (skyGoal) {
     orbit.phi = damp(orbit.phi, skyGoal.phi, 2.4, dt); orbit.dist = damp(orbit.dist, skyGoal.dist, 2.4, dt);
@@ -1676,4 +1840,5 @@ $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
+window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+  constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
