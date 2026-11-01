@@ -10,7 +10,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%236366f1'/%3E%3Cpath d='M16 7c3 4 3 7 0 10-3-3-3-6 0-10zM7 15c4 0 7 1 9 5-4 1-7-1-9-5zm18 0c-4 0-7 1-9 5 4 1 7-1 9-5zM9 23h14' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
 <canvas id="scene" aria-label="법당 3D 화면"></canvas>
@@ -62,6 +62,14 @@
 </button>
 
 <!-- 하단 도크 -->
+<div id="talkBar" class="glass" hidden>
+  <div id="talkTop"><b id="talkWho"></b>
+    <button id="talkPause" type="button" aria-label="일시정지"><svg class="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg><svg class="i-play" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg></button>
+    <button id="talkStop" type="button" aria-label="그만 듣기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <p id="talkText" aria-live="off"></p>
+  <div id="talkProg"><i id="talkFill"></i></div>
+</div>
 <nav id="dock" class="glass" hidden>
   <button id="btnHap" title="합장 (H)"><svg viewBox="0 0 24 24"><path d="M12 3c-2 3-3 7-3 11v6m3-17c2 3 3 7 3 11v6M12 3v17M6 20h12"/></svg><span id="btnHapLabel">합장</span></button>
   <button id="btnBow" title="절하기 (Space)"><svg viewBox="0 0 24 24"><circle cx="17" cy="7" r="3"/><path d="M15 11c-4 1-8 4-10 9h15"/></svg><span id="btnBowLabel">절하기</span></button>
@@ -71,6 +79,7 @@
   <button id="btnTower" aria-pressed="false" title="탑을 오른쪽에 두고 세 바퀴 돌기" hidden><svg viewBox="0 0 24 24"><path d="M12 3v3M8 6h8l-1 3H9zM7 9h10l-1 3H8zM6 12h12l-1 3H7zM5 15h14v5H5z"/></svg><span id="btnTowerLabel">탑돌기</span></button>
   <button id="btnSit" title="자리에 앉기"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="17" rx="9" ry="3.4"/><circle cx="12" cy="7" r="3.2"/><path d="M12 10.5v3"/></svg><span id="btnSitLabel">앉기</span></button>
   <button id="btnBeads" title="108염주"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2"/><circle cx="19" cy="9" r="2"/><circle cx="16.5" cy="17.5" r="2"/><circle cx="7.5" cy="17.5" r="2"/><circle cx="5" cy="9" r="2"/></svg><span id="btnBeadsLabel">염주</span></button>
+  <button id="btnTalk" aria-pressed="false" title="법문 듣기"><svg viewBox="0 0 24 24"><path d="M4 13v-1a8 8 0 0 1 16 0v1M4 13h2.4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1zM20 13h-2.4a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1H19a1 1 0 0 0 1-1z"/></svg><span id="btnTalkLabel">법문 듣기</span></button>
   <button id="btnConfess" title="고해소로 가기" hidden><svg viewBox="0 0 24 24"><path d="M5 21V10l7-6 7 6v11M9 21v-7h6v7M12 7v3M10.5 8.5h3"/></svg><span>고해성사</span></button>
   <button id="btnChant" aria-pressed="false" title="염불, 명상, 배경 소리 고르기"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg><span>소리 고르기</span></button>
 </nav>
@@ -99,6 +108,15 @@
 </section>
 
 <!-- 염주 모달 -->
+<div class="overlay" id="talkModal" hidden>
+  <div class="glass modal" role="dialog" aria-modal="true" aria-labelledby="talkTitle">
+    <button class="modal-x" data-close aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <h2 id="talkTitle">스님 법문 듣기</h2>
+    <p class="muted small">이 사이트에서 쓴 글을 합성 음성으로 들려 드립니다. 실제 스님과 신부님의 말씀이 아닙니다. 경전과 복음의 내용은 쉬운 말로 옮겨 담았습니다.</p>
+    <div id="talkList" class="track-list" role="radiogroup" aria-labelledby="talkTitle"></div>
+    <div class="modal-actions"><button class="primary wide" data-close type="button">닫기</button></div>
+  </div>
+</div>
 <div class="overlay" id="confessModal" hidden>
   <div class="glass modal confess" role="dialog" aria-modal="true" aria-labelledby="confessTitle">
     <button class="modal-x" data-close aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
@@ -254,10 +272,12 @@
       <li><b>성당</b> 첫 화면에서 들어갑니다. 긴 의자에 앉아 기도하고 무릎을 꿇을 수 있으며, 소리 고르기에 오르간과 성가대 허밍이 있습니다.</li>
       <li><b>성모 동산</b> 성당에서 왼쪽 위 버튼으로 나갑니다. 동굴 속 성모상과 장미 화단, 분수가 있습니다. 계절 고르기, 하늘 보기, 촛불 봉헌, 비둘기 모이 주기, 분수를 도는 묵주 걷기를 할 수 있습니다.</li>
       <li><b>고해성사</b> 성당의 고해소에서 혼자 돌아보는 묵상입니다. 실제 성사를 대신하지 않으며, 적은 글은 저장하지도 보내지도 않습니다.</li>
+      <li><b>법문과 말씀</b> 법당의 법문 듣기, 성당의 말씀 듣기에서 고릅니다. 이 사이트에서 쓴 글을 합성 음성으로 읽으며, 실제 스님과 신부님의 말씀이 아닙니다.</li>
+      <li><b>스테인드글라스</b> 샤갈의 색과 분위기를 따라 새로 그린 그림입니다. 샤갈의 실제 작품을 옮긴 것이 아닙니다.</li>
       <li><b>기록</b> 절, 염주, 돌탑 수는 이 기기에만 저장됩니다.</li>
       <li><b>안내</b> 법당과 정원의 다른 동자승은 실제 접속자가 아닌 연출입니다.</li>
       <li><b>별자리</b> 정원의 하늘 보기에서 별 보기를 누르면 밤하늘로 바뀌고, 별자리를 누르면 설명이 나옵니다. 별자리는 실제 좌표로 계절 저녁 9시 무렵의 서울 하늘에 놓았고, 나머지 작은 별과 은하수는 꾸밈입니다.</li>
-      <li><b>배경 소리</b> Wikimedia Commons의 실제 녹음을 잘라 반복합니다. 산바람·새소리: Robert EA Harvey, 풀벌레: Fortunamarco2003, 빗소리: Nirmal Dulal (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>). 계곡물: jackthemurray (CC0). 오르간과 성가대 허밍: 이 사이트에서 직접 합성. 절 횟수 안내 음성: Supertone Supertonic 3 (OpenRAIL-M)으로 합성. 출처는 audio/CREDITS.txt에 있습니다.</li>
+      <li><b>배경 소리</b> Wikimedia Commons의 실제 녹음을 잘라 반복합니다. 산바람·새소리: Robert EA Harvey, 풀벌레: Fortunamarco2003, 빗소리: Nirmal Dulal (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>). 계곡물: jackthemurray (CC0). 오르간과 성가대 허밍: 이 사이트에서 직접 합성. 법문과 말씀 음성: Supertone Supertonic 3 (OpenRAIL-M)으로 합성. 절 횟수 안내 음성: Supertone Supertonic 3 (OpenRAIL-M)으로 합성. 출처는 audio/CREDITS.txt에 있습니다.</li>
       <li><b>불상</b> 3D 스캔 원본: 미니애폴리스 미술관 소장 명나라 불상(CC0). 금빛 질감으로 다시 입혔고, 정원의 청동 불상은 같은 스캔을 청동빛으로 입혔습니다.</li>
       <li><b>고양이</b> 3D 스캔 원본: <a href="https://sketchfab.com/3d-models/catnana-eceaf20563ce4ab1908119a04a79f3be" target="_blank" rel="noopener">Cat(Nana)</a>, Yu (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>). 바닥을 잘라내고 면 수를 줄였습니다.</li>
     </ul>
@@ -270,6 +290,6 @@
   <p>이 브라우저에서 3D 화면(WebGL)을 쓸 수 없습니다. 다른 브라우저로 접속해 주세요.</p>
 </div>
 
-<script type="module" src="app.js?v=36"></script>
+<script type="module" src="app.js?v=37"></script>
 </body>
 </html>

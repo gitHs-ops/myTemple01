@@ -1,9 +1,9 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
-import { Sound } from './sound.js?v=10';
+import { Sound } from './sound.js?v=11';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=7';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
-import { CATHEDRAL, buildCathedral } from './cathedral.js?v=3';
+import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
 import { BULDU, buildBuldu } from './buldu.js?v=3';
 
@@ -1254,7 +1254,7 @@ let tap = null, pinch = 0;
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitV = new THREE.Vector3();
 let entered = false;
-const modalOpen = () => !$('confessModal').hidden || !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden || !$('seasonModal').hidden || !$('vowModal').hidden || !$('constModal').hidden || !$('stoneModal').hidden;
+const modalOpen = () => !$('talkModal').hidden || !$('confessModal').hidden || !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden || !$('seasonModal').hidden || !$('vowModal').hidden || !$('constModal').hidden || !$('stoneModal').hidden;
 
 canvas.addEventListener('pointerdown', (e) => {
   if (!entered) return;
@@ -1658,6 +1658,7 @@ $('btnBeads').onclick = () => openModal('beadsModal');
 const LEFT_KEY = 'goyoam.left';
 $('exitBtn').onclick = () => {
   stopAuto(); save();
+  talkToken = null; stopTalk();
   sound.stopVoice();
   sound.ctx?.close();
   try { sessionStorage.setItem(LEFT_KEY, '1'); } catch { /* 사생활 모드 등 */ }
@@ -1814,7 +1815,7 @@ $('btnTower').onclick = () => {
   stopAuto();
   const C = mode === 'mary' ? MARY_FOUNTAIN : TOWER;
   tour = { c: C, start: Math.atan2(player.x - C.x, player.z - C.z), step: 0, wp: null };
-  player.walkSpeed = 0.9;
+  player.walkSpeed = mode === 'mary' ? 0.55 : 0.9;
   $('btnTower').setAttribute('aria-pressed', 'true');
   tourStep();
   updateSitBtn();
@@ -1840,6 +1841,7 @@ function applyMode(next) {
   player.yaw = player.yawTo = inGarden ? 0 : Math.PI;
   orbit.theta = inGarden ? Math.PI : 0; orbit.phi = 1.22; orbit.dist = outside ? 9.5 : 8.2;
   camSnap = true;
+  $('btnTalk').hidden = outside;
   $('btnBow').hidden = outside; $('btnAuto').hidden = next !== 'temple'; $('btnConfess').hidden = next !== 'cathedral';
   const church = place === 'cathedral';
   $('btnBowLabel').textContent = place === 'cathedral' ? '무릎 꿇기' : '절하기';
@@ -1996,7 +1998,7 @@ function openModal(id) {
 }
 function closeModals() {
   leaveBooth();
-  ['beadsModal', 'settingsModal', 'chantModal', 'seasonModal', 'vowModal', 'constModal', 'stoneModal', 'confessModal'].forEach((id) => { $(id).hidden = true; });
+  ['beadsModal', 'settingsModal', 'chantModal', 'seasonModal', 'vowModal', 'constModal', 'stoneModal', 'confessModal', 'talkModal'].forEach((id) => { $(id).hidden = true; });
   lastFocus?.focus?.(); lastFocus = null;
 }
 document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = closeModals; });
@@ -2009,6 +2011,132 @@ document.querySelectorAll('.overlay').forEach((o) => {
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
 });
+
+/* 법문과 말씀: 미리 쓴 글을 합성 음성으로 들려주고 자막을 보여 준다 */
+const TALKS = {
+  temple: [
+    { id: 'monk_anger', name: '화가 날 때', desc: '두 번째 화살 이야기 · 약 1분 30초' },
+    { id: 'monk_letgo', name: '내려놓는다는 것', desc: '뗏목의 비유 · 약 1분 30초' },
+    { id: 'monk_breath', name: '이 숨 하나', desc: '함께 호흡을 바라봅니다 · 약 1분 20초' },
+  ],
+  cathedral: [
+    { id: 'priest_burden', name: '무거운 짐을 진 사람들에게', desc: '마태오 복음 11장 · 약 1분 20초' },
+    { id: 'priest_son', name: '되찾은 아들', desc: '루카 복음 15장 · 약 1분 30초' },
+    { id: 'priest_forgive', name: '일흔일곱 번의 용서', desc: '마태오 복음 18장 · 약 1분 30초' },
+  ],
+};
+const TALK_NAME = { temple: { who: '스님', verb: '법문' }, cathedral: { who: '신부님', verb: '말씀' } };
+let talk = null, speaker = null;
+function makeSpeaker() {
+  if (speaker) return speaker;
+  const church = place === 'cathedral', w = TALK_NAME[place].who;
+  const c = makeMonk(w), oldRobe = c.robe.material, oldCrown = M.crown;
+  const robe = std(church ? 0xf4f0e6 : 0x7f8180), cape = new THREE.MeshStandardMaterial({ color: church ? 0x2f6b45 : 0xa8562e, roughness: 0.85, side: THREE.DoubleSide });
+  const hair = church ? std(0x3a2c22) : null;
+  c.root.traverse((o) => {
+    if (!o.isMesh) return;
+    if (o.material === oldRobe) o.material = robe;
+    else if (o.material === M.sash) o.material = church ? std(0xd8ac45, { metalness: 0.5, roughness: 0.4 }) : cape;
+    else if (hair && o.material === oldCrown) o.material = hair;
+  });
+  // 가사 또는 제의: 옷 위에 한 겹을 더 입는다
+  const over = mesh(new THREE.LatheGeometry([[0.47, 0.3], [0.4, 0.5], [0.29, 0.74], [0.18, 0.85]].map(([r, h]) => new THREE.Vector2(r, h)), 20), cape, 0, 0, 0, c.robe);
+  over.scale.setScalar(1.02);
+  if (church) {
+    const A = cathedral.ambo;
+    c.x = A.x; c.z = A.z - 0.62; c.baseY = A.y; c.yaw = c.yawTo = 0;
+  } else {
+    // 법상에 앉아 대중을 바라본다
+    const X = -4.7, Z = -4.75;
+    mesh(new THREE.BoxGeometry(1.8, 0.42, 1.7), std(0x7c2a24), X, 0.21, Z, scene);
+    mesh(new THREE.BoxGeometry(1.92, 0.05, 1.82), std(0xd8ac45, { metalness: 0.4, roughness: 0.45 }), X, 0.44, Z, scene);
+    mesh(new THREE.BoxGeometry(1.15, 0.1, 1.15), std(0xa33c3a), X, 0.51, Z, scene);
+    c.x = X; c.z = Z; c.baseY = 0.5; c.yaw = c.yawTo = 0.45; c.sit = c.sitTo = 1;
+  }
+  speaker = c;
+  return c;
+}
+function speakerTick(dt, t) {
+  if (!speaker) return;
+  speaker.root.visible = !!talk;
+  if (!talk) return;
+  speaker.yawTo = speaker.yaw;
+  updateMonk(speaker, dt, t);
+  speaker.root.position.y = speaker.baseY;
+  // 말하는 동안 고개를 조금씩 끄덕인다
+  speaker.head.rotation.x += Math.sin(t * 1.3) * 0.05;
+  speaker.head.rotation.y = Math.sin(t * 0.43) * 0.16;
+}
+function showCue() {
+  if (!talk) return;
+  const now = talk.el.currentTime, cues = talk.cues;
+  let cue = null;
+  for (const q of cues) { if (q[0] <= now + 0.05 && now <= q[0] + q[1] + 0.7) cue = q; }
+  const text = cue ? cue[2] : '';
+  if (text !== talk.shown) { talk.shown = text; $('talkText').textContent = text; }
+  $('talkFill').style.width = `${Math.min(100, (now / (talk.dur || 1)) * 100)}%`;
+}
+function stopTalk(done = false) {
+  if (!talk) return;
+  const verb = TALK_NAME[place].verb;
+  talk = null;
+  sound.stopTalk();
+  $('talkBar').hidden = true;
+  document.body.classList.remove('talk-on');
+  $('btnTalk').setAttribute('aria-pressed', 'false');
+  if (done) { sound.bell(0.45); toast(`${verb}이 끝났습니다`, 4000); }
+}
+async function startTalk(id) {
+  stopTalk();
+  const item = TALKS[place].find((q) => q.id === id), token = {};
+  talkToken = token;
+  $('talkWho').textContent = `${TALK_NAME[place].who} · ${item.name}`;
+  $('talkText').textContent = '불러오는 중입니다…';
+  $('talkFill').style.width = '0';
+  $('talkPause').setAttribute('aria-label', '일시정지'); $('talkPause').classList.remove('paused');
+  $('talkBar').hidden = false; document.body.classList.add('talk-on');
+  let info;
+  try {
+    const r = await fetch(`audio/talk_${id}.json?v=1`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    info = await r.json();
+  } catch {
+    if (talkToken === token) { $('talkBar').hidden = true; document.body.classList.remove('talk-on'); toast('음성을 불러오지 못했습니다'); }
+    return;
+  }
+  if (talkToken !== token) return;
+  const el = sound.playTalk(`audio/talk_${id}.mp3?v=1`);
+  talk = { id, el, cues: info.cues, dur: info.dur, shown: null };
+  makeSpeaker();
+  $('btnTalk').setAttribute('aria-pressed', 'true');
+  el.addEventListener('timeupdate', showCue);
+  el.addEventListener('ended', () => { if (talk?.el === el) stopTalk(true); });
+  el.addEventListener('error', () => { if (talk?.el === el) { stopTalk(); toast('음성을 불러오지 못했습니다'); } });
+  el.play().catch(() => { if (talk?.el === el) { $('talkPause').classList.add('paused'); toast('재생 버튼을 눌러 주세요'); } });
+  // 자리가 없으면 가까운 자리에 가서 듣는다
+  if (mode === place && player.cushion == null && player.target?.cush == null && player.target?.seat == null) {
+    const i = nearestFreeCushion();
+    if (i != null) goToCushion(i);
+  }
+}
+let talkToken = null;
+function openTalks() {
+  const { who, verb } = TALK_NAME[place];
+  $('talkTitle').textContent = `${who} ${verb} 듣기`;
+  $('talkList').textContent = '';
+  fillList('talkList', TALKS[place], (id) => { closeModals(); startTalk(id); });
+  markList('talkList', talk?.id ?? null, (id, on) => (on ? '듣는 중' : ''));
+  openModal('talkModal');
+}
+$('btnTalk').onclick = openTalks;
+$('talkPause').onclick = () => {
+  if (!talk) return;
+  if (talk.el.paused) { sound.ctx.resume(); talk.el.play().catch(() => {}); } else talk.el.pause();
+  const paused = talk.el.paused;
+  $('talkPause').classList.toggle('paused', paused);
+  $('talkPause').setAttribute('aria-label', paused ? '다시 듣기' : '일시정지');
+};
+$('talkStop').onclick = () => { talkToken = null; stopTalk(); };
 
 /* 고해성사: 쓴 글은 어디에도 저장하거나 보내지 않고, 다음 단계로 넘어가면 바로 지운다 */
 const CONFESS_TOPICS = [
@@ -2263,6 +2391,7 @@ function frame(now) {
   if (mode === 'cathedral') cathedral.update(t);
   else if (mode === 'mary') maryGarden.update(t, dt);
   towerTick(dt);
+  speakerTick(dt, t);
   starUni.time.value = t; starUni.ratio.value = pixelRatio;
   stepStarAnim(dt); updateConstellations(dt);
   if (!reduceMotion) catBreath.value = 0.007 * (0.5 + 0.5 * Math.sin(t * 2));
@@ -2305,6 +2434,7 @@ $('rerollName').onclick = () => { $('nameInput').value = randomName(); };
 
 function enter(kind = 'temple') {
   const name = $('nameInput').value.trim().slice(0, 10) || randomName();
+  $('btnTalkLabel').textContent = kind === 'cathedral' ? '말씀 듣기' : '법문 듣기';
   if (kind === 'cathedral') {
     $('btnStoneLabel').textContent = '촛불 봉헌'; $('btnStone').title = '성모상 앞에 촛불 봉헌하기';
     $('btnStone').querySelector('svg').innerHTML = '<path d="M9 21h6M10 21V11h4v10M12 11V9M12 3c-1.6 2-2 3-2 4a2 2 0 0 0 4 0c0-1-.4-2-2-4z"/>';
@@ -2366,5 +2496,5 @@ $('enterBtn').textContent = '법당에 들어가기';
 $('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };

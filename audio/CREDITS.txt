@@ -32,3 +32,7 @@ voice_count.mp3
 
 organ.mp3, choir.mp3
 녹음을 쓰지 않고 이 사이트에서 직접 합성했습니다 (tools/render_organ.py).
+
+talk_*.mp3
+법문과 말씀. 글은 이 사이트에서 썼고, Supertone의 Supertonic 3 모델로 합성했습니다 (tools/render_talks.py).
+모델 라이선스: OpenRAIL-M (https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE)

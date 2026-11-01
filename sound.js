@@ -25,7 +25,7 @@ export class Sound {
     this.reverb.connect(wet); wet.connect(this.master);
 
     this.buses = {};
-    for (const k of ['wind', 'chant', 'perc', 'voice']) {
+    for (const k of ['wind', 'chant', 'perc', 'voice', 'talk']) {
       const g = ctx.createGain(); g.connect(this.master);
       this.buses[k] = g;
     }
@@ -43,9 +43,10 @@ export class Sound {
   applyVolumes() {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const curve = (v) => Math.pow(v / 100, 1.6);
-    this.buses.wind.gain.setTargetAtTime(curve(this.vol.wind) * 0.6, t, 0.05);
-    this.buses.chant.gain.setTargetAtTime(curve(this.vol.chant) * 1.3, t, 0.05);
+    const curve = (v) => Math.pow(v / 100, 1.6), duck = this.talkOn ? 0.3 : 1;   // 법문 중에는 배경을 낮춘다
+    this.buses.wind.gain.setTargetAtTime(curve(this.vol.wind) * 0.6 * duck, t, this.talkOn ? 0.5 : 0.05);
+    this.buses.chant.gain.setTargetAtTime(curve(this.vol.chant) * 1.3 * duck, t, this.talkOn ? 0.5 : 0.05);
+    this.buses.talk.gain.setTargetAtTime(1.5, t, 0.05);
     this.buses.perc.gain.setTargetAtTime(curve(this.vol.perc), t, 0.05);
     this.buses.voice.gain.setTargetAtTime(curve(this.voiceVol ?? 80) * 1.6, t, 0.05);
   }
@@ -165,6 +166,26 @@ export class Sound {
       this.voiceSrcs.push(src);
       at += item[1] + 0.01;
     }
+  }
+
+  // 법문과 말씀: 길어서 내려받으며 재생한다
+  playTalk(url) {
+    this.stopTalk();
+    const el = new Audio(url);
+    el.preload = 'auto';
+    this.talkSrc = this.ctx.createMediaElementSource(el);
+    this.talkSrc.connect(this.buses.talk);
+    this.talkEl = el; this.talkOn = true;
+    this.applyVolumes();
+    this.ctx.resume();
+    return el;
+  }
+
+  stopTalk() {
+    if (this.talkEl) { this.talkEl.pause(); this.talkEl.removeAttribute('src'); this.talkEl.load(); }
+    try { this.talkSrc?.disconnect(); } catch { /* 이미 끊김 */ }
+    this.talkEl = this.talkSrc = null;
+    if (this.talkOn) { this.talkOn = false; this.applyVolumes(); }
   }
 
   setGarden(on) {

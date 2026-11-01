@@ -1,4 +1,5 @@
 import * as THREE from './vendor/three.min.js';
+import { lancetPainter, rosePainter, washPainter } from './chagall.js?v=1';
 
 // 성당은 법당 뒤쪽 멀리 닫힌 건물로 둔다. 제단은 법당의 불상처럼 -z쪽에 있다
 const CZ = -80;
@@ -101,60 +102,25 @@ export function buildCathedral({ scene, mesh, std, canvasTex, seatGroup }) {
     const m = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide, toneMapped: false, fog: false });
     windowMats.push(m); return m;
   };
-  const lancetTex = (seed) => canvasTex(160, 400, (g, w, h) => {
-    const r = seeded(seed);
-    const outline = () => { g.beginPath(); g.moveTo(6, h - 4); g.lineTo(6, 120); g.quadraticCurveTo(10, 40, w / 2, 6); g.quadraticCurveTo(w - 10, 40, w - 6, 120); g.lineTo(w - 6, h - 4); g.closePath(); };
-    g.save(); outline(); g.clip();
-    const cell = 26;
-    for (let y = 0; y < h; y += cell) for (let x = 0; x < w; x += cell) {
-      g.fillStyle = GLASS[Math.floor(r() * GLASS.length)]; g.fillRect(x, y, cell, cell);
-    }
-    g.strokeStyle = 'rgba(15,12,20,.9)'; g.lineWidth = 3;
-    for (let y = 0; y < h; y += cell) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y + (r() - 0.5) * 6); g.stroke(); }
-    for (let x = 0; x < w; x += cell) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
-    // 가운데 둥근 장식
-    g.fillStyle = '#f2dc9a'; g.beginPath(); g.arc(w / 2, 150, 32, 0, 6.3); g.fill();
-    g.fillStyle = '#b3202c'; g.beginPath(); g.arc(w / 2, 150, 20, 0, 6.3); g.fill();
-    g.lineWidth = 4; g.beginPath(); g.arc(w / 2, 150, 32, 0, 6.3); g.stroke();
-    g.restore();
-    g.strokeStyle = '#2a2420'; g.lineWidth = 8; outline(); g.stroke();
-  });
+  const lancetTex = (seed) => canvasTex(320, 800, lancetPainter(seed));
   const lancet = new THREE.PlaneGeometry(2, 5);
-  const washTex = canvasTex(64, 128, (g, w, h) => {
-    const r = seeded(2);
-    for (let y = 0; y < h; y += 16) for (let x = 0; x < w; x += 16) { g.fillStyle = GLASS[Math.floor(r() * 7)]; g.fillRect(x, y, 16, 16); }
-  });
+  const washTex = canvasTex(64, 128, washPainter);
   washTex.magFilter = THREE.LinearFilter;
   const washMat = new THREE.MeshBasicMaterial({ map: washTex, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false });
   windowMats.push(washMat);
   [-1, 1].forEach((s) => {
     [-15, -9, -3, 3, 9, 15].forEach((d, i) => {
-      const m = mesh(lancet, glassMat(lancetTex(20 + i * 2 + (s > 0 ? 1 : 0))), s * 10.94, 4.3, Z(d), root); m.rotation.y = s * Math.PI / 2;
+      const m = mesh(lancet, glassMat(lancetTex(s > 0 ? i : i + 6)), s * 10.94, 4.3, Z(d), root); m.rotation.y = s * Math.PI / 2;
       // 창빛이 바닥에 비친다
       const p = mesh(new THREE.PlaneGeometry(2, 4.4), washMat, s * 8.1, 0.018, Z(d), root); p.rotation.x = -Math.PI / 2; p.rotation.z = s * Math.PI / 2;
     });
   });
-  const roseTex = canvasTex(512, 512, (g, w) => {
-    const c = w / 2, R = c - 8, r = seeded(9);
-    g.save(); g.translate(c, c);
-    for (let ring = 3; ring >= 1; ring--) {
-      const n = ring * 12, rad = (R * ring) / 3;
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2;
-        g.fillStyle = GLASS[Math.floor(r() * GLASS.length)];
-        g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, rad, a, a + (Math.PI * 2) / n); g.closePath(); g.fill();
-        g.strokeStyle = '#17121c'; g.lineWidth = 5; g.stroke();
-      }
-    }
-    g.fillStyle = '#f2dc9a'; g.beginPath(); g.arc(0, 0, R * 0.14, 0, 6.3); g.fill(); g.stroke();
-    g.lineWidth = 12; g.beginPath(); g.arc(0, 0, R, 0, 6.3); g.stroke();
-    g.restore();
-  });
+  const roseTex = canvasTex(640, 640, rosePainter(9));
   const roseGeo = new THREE.CircleGeometry(3, 40);
   const roseFront = mesh(roseGeo, glassMat(roseTex), 0, 11.6, Z(-17.94), root); roseFront.rotation.y = 0;
   const roseBack = mesh(roseGeo, glassMat(roseTex), 0, 11, Z(20.94), root); roseBack.rotation.y = Math.PI;
   [-1, 1].forEach((s) => {
-    mesh(new THREE.PlaneGeometry(2.4, 6), glassMat(lancetTex(40 + s)), s * 4.6, 5.6, Z(-17.94), root);
+    mesh(new THREE.PlaneGeometry(2.4, 6), glassMat(lancetTex(s > 0 ? 12 : 13)), s * 4.6, 5.6, Z(-17.94), root);
   });
 
   /* ───────── 제단 ───────── */
@@ -232,6 +198,15 @@ export function buildCathedral({ scene, mesh, std, canvasTex, seatGroup }) {
     });
   });
 
+  /* ───────── 독서대 ───────── */
+  const AMBO = { x: 3.7, z: Z(-11.75), y: 0.36 };
+  mesh(new THREE.CylinderGeometry(0.08, 0.14, 1.28, 10), darkWood, AMBO.x, AMBO.y + 0.62, AMBO.z - 0.05, root);
+  mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.08, 16), darkWood, AMBO.x, AMBO.y + 0.05, AMBO.z - 0.05, root);
+  const lect = mesh(new THREE.BoxGeometry(0.95, 0.06, 0.62), woodMat, AMBO.x, AMBO.y + 1.28, AMBO.z - 0.05, root); lect.rotation.x = -0.45;
+  const bible = mesh(new THREE.BoxGeometry(0.62, 0.05, 0.44), std(0xeee6d0), AMBO.x, AMBO.y + 1.34, AMBO.z - 0.03, root); bible.rotation.x = -0.45;
+  mesh(new THREE.BoxGeometry(0.97, 0.3, 0.02), std(0x2f6b45), AMBO.x, AMBO.y + 1.02, AMBO.z + 0.18, root);
+  colliders.push([AMBO.x, AMBO.z, 0.6]);
+
   /* ───────── 고해소 ───────── */
   const booth = new THREE.Group(); root.add(booth);
   const BZ = Z(0), BX = -10;
@@ -266,7 +241,7 @@ export function buildCathedral({ scene, mesh, std, canvasTex, seatGroup }) {
   seats.forEach((q) => { q.mesh.visible = false; });
 
   return {
-    root, seats, colliders, booth, confessSpot: { x: BX + 2.4, z: BZ + 1.28 },
+    root, seats, colliders, booth, ambo: AMBO, confessSpot: { x: BX + 2.4, z: BZ + 1.28 },
     setActive(on) {
       root.visible = on;
       lights.forEach((l) => { l.visible = on; });
