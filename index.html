@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#eef2ff">
-<title>고요암 — 잠깐 앉았다 가는 온라인 암자</title>
+<title>아강암 — 잠깐 앉았다 가는 온라인 암자</title>
 <meta name="description" content="설치도 가입도 없이, 방구석에서 들어가는 3D 온라인 암자. 합장, 108배, 염주, 염불.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%236366f1'/%3E%3Cpath d='M16 7c3 4 3 7 0 10-3-3-3-6 0-10zM7 15c4 0 7 1 9 5-4 1-7-1-9-5zm18 0c-4 0-7 1-9 5 4 1 7-1 9-5zM9 23h14' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
 <canvas id="scene" aria-label="법당 3D 화면"></canvas>
@@ -23,9 +23,15 @@
     <div class="bar" id="bowBarWrap"><i id="bowBar"></i></div>
     <button class="counter-link" id="stoneReset" type="button" title="돌탑을 허물고 처음부터 다시 쌓기" hidden>새로 쌓기</button>
   </div>
-  <button class="glass icon-btn" id="openSettings" aria-label="설정과 안내">
-    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/></svg>
-  </button>
+  <div class="hud-right">
+    <button class="glass exit-btn" id="exitBtn" type="button" title="소리를 끄고 입구로 나가기">
+      <svg viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 8l-4 4 4 4M6 12h10"/></svg>
+      <span>나가기</span>
+    </button>
+    <button class="glass icon-btn" id="openSettings" aria-label="설정과 안내">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/></svg>
+    </button>
+  </div>
 </header>
 
 <button id="modeBtn" class="glass" type="button" hidden>
@@ -74,7 +80,8 @@
 <section id="gate">
   <div class="glass gate-card">
     <p class="eyebrow">온라인 암자</p>
-    <h1>고요암</h1>
+    <h1>아강암</h1>
+    <p class="gate-note" id="gateNote" hidden>나왔습니다. 소리를 모두 껐으니 이 창을 닫아도 됩니다.</p>
     <p class="lead">절까지 갈 기운이 없는 날,<br>여기서 잠깐 앉았다 가세요.</p>
     <label for="nameInput">오늘의 법명</label>
     <div class="name-row">
@@ -190,8 +197,6 @@
     <div class="field"><label for="setChant">염불·명상</label><select id="setChant"></select></div>
     <div class="field"><label for="volChant">염불·명상 크기</label><input type="range" id="volChant" min="0" max="100"></div>
     <div class="field"><label for="setSeason">정원의 계절</label><select id="setSeason"></select></div>
-    <div class="field"><label for="setFallSummer">여름에 떨어지는 것</label><select id="setFallSummer"></select></div>
-    <div class="field"><label for="setFallAutumn">가을에 떨어지는 것</label><select id="setFallAutumn"></select></div>
     <p class="muted small">정원에 적용됩니다. 봄은 벚꽃잎, 겨울은 눈으로 정해져 있습니다.</p>
     <label class="check-row"><input type="checkbox" id="setVoice"> 절할 때마다 횟수 말하기</label>
     <div class="field"><label for="volPerc">목탁·종 크기</label><input type="range" id="volPerc" min="0" max="100"></div>
@@ -221,6 +226,6 @@
   <p>이 브라우저에서 3D 화면(WebGL)을 쓸 수 없습니다. 다른 브라우저로 접속해 주세요.</p>
 </div>
 
-<script type="module" src="app.js?v=28"></script>
+<script type="module" src="app.js?v=29"></script>
 </body>
 </html>

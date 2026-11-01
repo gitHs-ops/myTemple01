@@ -343,30 +343,22 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
   const leafShape = new THREE.Shape();
   leafShape.moveTo(0, -0.17); leafShape.bezierCurveTo(0.1, -0.12, 0.15, -0.01, 0.11, 0.05); leafShape.bezierCurveTo(0.08, 0.1, 0.03, 0.13, 0, 0.2);
   leafShape.bezierCurveTo(-0.03, 0.13, -0.08, 0.1, -0.11, 0.05); leafShape.bezierCurveTo(-0.15, -0.01, -0.1, -0.12, 0, -0.17);
-  const fallMat = () => new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, emissive: 0x2b2b30 });
   const MAXF = small ? 300 : 520;
   const fall = {
     petal: new THREE.InstancedMesh(new THREE.ShapeGeometry(petalShape, 5), new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, emissive: 0x6a4a56 }), MAXF),
-    leaf: new THREE.InstancedMesh(new THREE.ShapeGeometry(leafShape, 5), fallMat(), MAXF),
     snow: new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.05, 0), new THREE.MeshBasicMaterial({ color: 0xffffff }), MAXF),
-    rain: new THREE.InstancedMesh(new THREE.BoxGeometry(0.014, 0.62, 0.014), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false }), MAXF),
   };
   Object.values(fall).forEach((m) => { m.frustumCulled = false; m.visible = false; m.count = 0; root.add(m); });
   const respot = (f) => { f.x = fr(-27, 27); f.z = fr(11, 50); };
   const flakes = Array.from({ length: MAXF }, () => { const f = { y: fr(0, 14), k: fr(0, 1), ph: fr(0, 6.28), rs: fr(0.6, 1.6) }; respot(f); return f; });
   const FALL = {
     spring: { kind: 'petal', n: 1, sp: [0.34, 0.62], sway: 1.3, size: [1, 1.5], cols: [0xfbd5df, 0xf7bccd, 0xfde6ec, 0xf3a8c0] },
-    green: { kind: 'leaf', n: 0.16, sp: [0.6, 1], sway: 1.2, size: [0.8, 1.1], cols: [0x5d9c50, 0x76ab58] },
-    seed: { kind: 'snow', n: 0.3, sp: [0.2, 0.42], sway: 2.2, size: [0.5, 0.9], cols: [0xfffdf2] },
-    maple: { kind: 'leaf', n: 0.5, sp: [0.55, 1.05], sway: 1.6, size: [0.9, 1.5], cols: [0xc8452d, 0xdb6a2b, 0xe6a02e, 0xb8382e, 0xd9852f] },
-    ginkgo: { kind: 'leaf', n: 0.5, sp: [0.5, 0.95], sway: 1.8, size: [0.8, 1.3], cols: [0xf2c62e, 0xe9b81f, 0xf7d84e, 0xdfa91a] },
-    rain: { kind: 'rain', n: 0.95, sp: [15, 21], sway: 0, size: [0.8, 1.3], cols: [0xc4d6e6] },
     winter: { kind: 'snow', n: 1, sp: [0.55, 1.05], sway: 0.55, size: [0.7, 1.5], cols: [0xffffff] },
   };
-  let fallNow = null, active = false, fallHide = false, fxDirty = true, fallPick = { summer: 'green', autumn: 'maple' };
+  let fallNow = null, active = false, fallHide = false, fxDirty = true;
   const applyFall = () => {
     Object.values(fall).forEach((m) => { m.visible = false; m.count = 0; });
-    fallNow = FALL[fallPick[seasonNow] ?? seasonNow] ?? null;
+    fallNow = FALL[seasonNow] ?? null;
     fxDirty = true;
     if (!fallNow) return;
     const m = fall[fallNow.kind];
@@ -382,7 +374,7 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
       f.y -= sp * dt;
       if (f.y < GROUND_Y + 0.02) { f.y = 14; respot(f); }
       dummy.position.set(f.x + Math.sin(t * 0.5 * f.rs + f.ph) * c.sway, f.y, f.z + Math.cos(t * 0.38 * f.rs + f.ph) * c.sway * 0.7);
-      if (c.kind === 'snow' || c.kind === 'rain') dummy.rotation.set(0, 0, 0);
+      if (c.kind === 'snow') dummy.rotation.set(0, 0, 0);
       else dummy.rotation.set(t * f.rs + f.ph, t * 0.7 * f.rs + f.ph * 2, Math.sin(t * f.rs + f.ph) * 1.1);
       dummy.scale.setScalar(c.size[0] + f.k * (c.size[1] - c.size[0]));
       dummy.updateMatrix(); m.setMatrixAt(i, dummy.matrix);
@@ -454,7 +446,6 @@ export function buildGarden({ scene, mesh, std, canvasTex, seatGroup, still }) {
       }
       updateFlies();
     },
-    setFall(pick) { fallPick = pick; if (seasonNow) applyFall(); },
     fallInfo() {
       return { season: seasonNow, kind: fallNow?.kind, count: fallNow ? fall[fallNow.kind].count : 0, visible: fallNow ? fall[fallNow.kind].visible : false, litter: litter.count, flies: flyCore.visible, sampleY: flakes[0].y, ice: water.ice.value, bare: trees[0].bare.visible };
     },

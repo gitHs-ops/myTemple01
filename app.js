@@ -1,7 +1,7 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=9';
-import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=6';
+import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=7';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 import { BULDU, buildBuldu } from './buldu.js?v=2';
 
@@ -19,7 +19,7 @@ const KEY = 'goyoam.v1';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 사생활 모드 등 */ } };
 const state = Object.assign(
-  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, season: 'auto', fall: { summer: 'green', autumn: 'maple' }, vows: {}, voiceOn: true, voiceVol: 80, chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
+  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, season: 'auto', vows: {}, voiceOn: true, voiceVol: 80, chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
   (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })()
 );
 const rollDay = () => { if (state.day !== today()) { state.day = today(); state.bowsToday = 0; save(); updateHud(); } };
@@ -698,8 +698,8 @@ new GLTFLoader().load('models/cat.glb', (gltf) => {
 /* ───────── 계절 ───────── */
 const SEASONS = {
   spring: { name: '봄', desc: '벚꽃잎이 흩날리고 땅과 물에 쌓입니다', ground: '#7fa565', hills: ['#6f9a63', '#7fa183', '#9db6a6'], broad: ['#a9c96c', '#bcd67c', '#8fbf66', '#f0c3d0'], fall: ['#fbd5df', '#f7bccd'], fallN: 46, snow: 0 },
-  summer: { name: '여름', desc: '짙은 녹음과 연꽃, 밤에는 반딧불이', ground: '#5f8a4d', hills: ['#4a7a4c', '#5c8768', '#7f9f8e'], broad: ['#4f8f4a', '#5d9c50', '#457f45', '#69a557'], fall: ['#5d9c50', '#76ab58'], fallN: 8, snow: 0 },
-  autumn: { name: '가을', desc: '단풍이 들고 낙엽이 떨어집니다', ground: '#8b8f55', hills: ['#9a7a45', '#97825f', '#a2a08c'], broad: ['#c96f3a', '#b98a3a', '#d9552e', '#e0a33a'], fall: ['#d9852f', '#c95b2b', '#e4b23a', '#b9772b'], fallN: 46, snow: 0 },
+  summer: { name: '여름', desc: '짙은 녹음과 연꽃, 밤에는 반딧불이', ground: '#5f8a4d', hills: ['#4a7a4c', '#5c8768', '#7f9f8e'], broad: ['#4f8f4a', '#5d9c50', '#457f45', '#69a557'], fall: ['#5d9c50', '#76ab58'], fallN: 0, snow: 0 },
+  autumn: { name: '가을', desc: '단풍이 들고 땅에 낙엽이 쌓입니다', ground: '#8b8f55', hills: ['#9a7a45', '#97825f', '#a2a08c'], broad: ['#c96f3a', '#b98a3a', '#d9552e', '#e0a33a'], fall: ['#d9852f', '#c95b2b', '#e4b23a', '#b9772b'], fallN: 0, snow: 0 },
   winter: { name: '겨울', desc: '눈이 내리고 연못이 얼어붙습니다', ground: '#dfe8ee', hills: ['#c3d0d6', '#d3dee3', '#e4ecf0'], broad: ['#cdd6dc', '#d8e0e5'], fall: ['#ffffff'], fallN: 46, snow: 0.62 },
 };
 const autoSeason = () => {
@@ -1587,6 +1587,18 @@ $('btnChant').onclick = () => {
   });
 });
 $('btnBeads').onclick = () => openModal('beadsModal');
+const LEFT_KEY = 'goyoam.left';
+$('exitBtn').onclick = () => {
+  stopAuto(); save();
+  window.speechSynthesis?.cancel();
+  sound.ctx?.close();
+  try { sessionStorage.setItem(LEFT_KEY, '1'); } catch { /* 사생활 모드 등 */ }
+  window.close();   // 스크립트로 연 창이 아니면 브라우저가 막으므로 입구로 돌아간다
+  location.reload();
+};
+try {
+  if (sessionStorage.getItem(LEFT_KEY)) { sessionStorage.removeItem(LEFT_KEY); $('gateNote').hidden = false; }
+} catch { /* 사생활 모드 등 */ }
 
 /* 정원 행동 */
 let placing = false, placingDrop = false, stoneClearing = false;
@@ -1707,18 +1719,6 @@ $('modeBtn').onclick = () => {
 $('setAmb').onchange = () => pickAmbient($('setAmb').value);
 $('setChant').onchange = () => { chantUntil = 0; playTrack($('setChant').value || null); };
 $('setSeason').onchange = () => pickSeason($('setSeason').value);
-const FALL_CHOICE = {
-  summer: [['green', '초록 잎'], ['seed', '민들레 홀씨'], ['rain', '여름비'], ['none', '없음']],
-  autumn: [['maple', '단풍잎'], ['ginkgo', '은행잎'], ['rain', '가을비'], ['none', '없음']],
-};
-for (const [season, sel] of [['summer', 'setFallSummer'], ['autumn', 'setFallAutumn']]) {
-  const box = $(sel), items = FALL_CHOICE[season];
-  items.forEach(([id, label]) => { const o = document.createElement('option'); o.value = id; o.textContent = label; box.append(o); });
-  if (!items.some(([id]) => id === state.fall[season])) state.fall[season] = items[0][0];
-  box.value = state.fall[season];
-  box.onchange = () => { state.fall[season] = box.value; save(); garden.setFall(state.fall); };
-}
-garden.setFall(state.fall);
 $('setVoice').onchange = () => {
   state.voiceOn = $('setVoice').checked; save();
   if (state.voiceOn) speak('일 배'); else window.speechSynthesis?.cancel();
@@ -2088,5 +2088,5 @@ $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => { const q = cushions[i]; setTarget(player, q.x, q.z, i); }, get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => { const q = cushions[i]; setTarget(player, q.x, q.z, i); }, get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
