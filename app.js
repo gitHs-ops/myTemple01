@@ -765,13 +765,13 @@ function nameSprite(text, mine) {
   s.scale.set((w / 68) * 0.27, 0.27, 1); s.position.y = 1.86;
   return s;
 }
-/* 합장 자세: 두 팔을 앞으로 길게 내밀어 끝에서 손을 모은다 */
+/* 합장 자세: 팔꿈치를 90도로 굽혀 가슴 앞에서 손을 모은다 */
 const ARM_UP = 0.24, ARM_FORE = 0.3;
 const HAP_POSE = (() => {
   const down = new THREE.Vector3(0, -1, 0), out = {};
   const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12, 0, 0));
   for (const s of [-1, 1]) {
-    const S = new THREE.Vector3(s * 0.25, 0.74, 0.02), E = new THREE.Vector3(s * 0.19, 0.7, 0.54), H = new THREE.Vector3(s * 0.058, 0.82, 1.08);
+    const S = new THREE.Vector3(s * 0.25, 0.74, 0.02), E = new THREE.Vector3(s * 0.36, 0.4, 0.22), H = new THREE.Vector3(s * 0.058, 0.54, 0.58);
     const u = E.clone().sub(S), f = H.clone().sub(E);
     const qU = new THREE.Quaternion().setFromUnitVectors(down, u.clone().normalize());
     const qF = new THREE.Quaternion().setFromUnitVectors(down, f.clone().normalize());
