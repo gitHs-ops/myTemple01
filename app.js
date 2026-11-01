@@ -1025,7 +1025,7 @@ function updateMonk(c, dt, t) {
   let dy = c.yawTo - c.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
   c.yaw += dy * (1 - Math.exp(-9 * dt));
   c.walk = damp(c.walk, moving, 10, dt);
-  c.phase += dt * 10 * moving;
+  c.phase += dt * (c.walkSpeed ? c.walkSpeed * 4.5 : 10) * moving;   // 천천히 걸을 때는 발걸음도 느리게
   c.sit = damp(c.sit, c.sitTo, 6, dt);
   if (c.hapUntil && t > c.hapUntil) { c.hapTo = 0; c.hapUntil = 0; }
 
@@ -1735,7 +1735,7 @@ $('btnTower').onclick = () => {
   if (skyBack) $('skyBtn').click();
   stopAuto();
   tour = { start: Math.atan2(player.x - TOWER.x, player.z - TOWER.z), step: 0, wp: null };
-  player.walkSpeed = 1.8;
+  player.walkSpeed = 0.9;
   $('btnTower').setAttribute('aria-pressed', 'true');
   tourStep();
   updateSitBtn();
