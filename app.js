@@ -904,7 +904,7 @@ function updateMonk(c, dt, t) {
   if (c.bowT != null) {
     c.bowT += dt / BOW_TIME;
     const b = c.bowT;
-    // 일어나 → 양팔을 벌리며 앉고 → 이마를 숙였다가 → 일으켜 앉고 → 팔을 내리며 일어난다
+    // 일어나 → 양팔을 앞으로 내밀며 앉고 → 이마를 숙였다가 → 일으켜 앉고 → 팔을 내리며 일어난다
     rise = smooth(0, 0.14, b) * (1 - smooth(0.24, 0.38, b));
     kneel = smooth(0.24, 0.38, b) * (1 - smooth(0.86, 1, b));
     down = smooth(0.38, 0.54, b) * (1 - smooth(0.68, 0.84, b));
@@ -961,7 +961,7 @@ function updateMonk(c, dt, t) {
   for (const { a, s, up, e, fore, w, hand, pose } of c.arms) {
     const swing = Math.sin(c.phase + (s > 0 ? 0 : Math.PI)) * 0.55 * c.walk;
     const lap = c.sit * (1 - c.hap) * (1 - rise) * (1 - spread);
-    eulerArm.set(swing * (1 - c.hap) - 0.72 * lap - 3.02 * down, 0, s * (0.2 * (1 - c.hap) * (1 - lap) - 0.5 * lap + 0.8 * down + 1.2 * spread * (1 - down)));
+    eulerArm.set(swing * (1 - c.hap) - 0.72 * lap - 3.02 * down - 1.5 * spread * (1 - down), 0, s * (0.2 * (1 - c.hap) * (1 - lap) * (1 - spread) - 0.5 * lap + 0.15 * down));
     qRest.setFromEuler(eulerArm);
     a.quaternion.slerpQuaternions(qRest, pose.upper, hapK);
     e.quaternion.slerpQuaternions(qOne, pose.elbow, hapK);
@@ -973,7 +973,7 @@ function updateMonk(c, dt, t) {
       eulerArm.set(el, 0, 0);
       e.quaternion.slerp(qFeed.setFromEuler(eulerArm), feedK);
     }
-    // 합장과 절의 숙임에서는 팔이 앞으로, 앉을 때는 양옆으로 길게 뻗는다
+    // 합장과 절에서는 팔을 앞으로 길게 뻗는다
     const reach = 1.1 * down + 0.5 * spread * (1 - down);
     const lenU = 1 + (pose.lenU - 1) * hapK + reach, lenF = 1 + (pose.lenF - 1) * hapK + reach;
     up.scale.y = lenU; up.position.y = -ARM_UP / 2 * lenU;
@@ -1394,12 +1394,28 @@ function drawTracks(loadingId = null) {
   }
   $('btnChant').setAttribute('aria-pressed', String(!!sound.chantId));
   $('setChant').value = sound.chantId || '';
+  updateAmbNote();
 }
 let ambLoading = null;
+// 배경 소리를 꺼도 염불·명상은 따로 남는다. 무슨 소리인지 설정 창에서 바로 알 수 있게 한다
+function updateAmbNote() {
+  const box = $('ambNote'), left = state.ambient === 'off' && sound.chantId;
+  box.hidden = !left;
+  if (left) box.textContent = `지금 나는 소리는 ${[...TRACKS, ...MEDITATIONS].find((x) => x.id === sound.chantId)?.name ?? '염불·명상'}입니다. 아래 염불·명상에서 끄기를 고르면 멈춥니다.`;
+}
+// 다른 탭에서 들어오면 이 탭의 소리를 멈춘다. 이 탭으로 돌아오면 다시 낸다
+const tabs = window.BroadcastChannel ? new BroadcastChannel('goyoam-sound') : null;
+let tabMuted = false;
+if (tabs) tabs.onmessage = () => { if (sound.ctx) { sound.ctx.suspend(); tabMuted = true; } };
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !tabMuted) return;
+  tabMuted = false; sound.ctx.resume(); tabs.postMessage('entered');
+});
 const drawAmbients = () => {
   markList('ambList', state.ambient, (id, on) => (on && id !== 'off' ? (id === ambLoading ? '불러오는 중…' : '재생 중') : ''));
   $('setAmb').value = state.ambient;
   $('ambLabel').textContent = `배경 소리 · ${AMBIENTS.find((x) => x.id === state.ambient)?.name ?? ''}`;
+  updateAmbNote();
 };
 const ambFail = () => toast('배경 소리를 불러오지 못했습니다. 다시 골라 주세요');
 sound.onAmbError = ambFail;
@@ -1809,7 +1825,7 @@ const camPos = new THREE.Vector3();
 let camFit = 1;
 let feedViewK = 0, feedViewUntil = 0, feedTheta = 0;   // 먹이 줄 때는 어깨 너머 위에서 손과 연못을 함께 본다
 let poseK = 0, poseOff = false, atBuldu = false, bulduLift = 0, bulduBack = null;
-const POSE_TURN = 1.7, POSE_TURN_BOW = 2.5, POSE_DIST = 4.8, FEED_TURN = 2.45, FEED_DIST = 6.4, FEED_PHI = 0.92;
+const POSE_TURN = 1.7, POSE_TURN_BOW = 1.95, POSE_DIST = 4.8, FEED_TURN = 2.45, FEED_DIST = 6.4, FEED_PHI = 0.92;
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 function viewFit(x, z, theta, reach) {
   const ox = reach * Math.sin(theta), oz = reach * Math.cos(theta);
@@ -1848,7 +1864,7 @@ function updateCamera(dt) {
   if (player && poseK > 0.001) {
     const front = feedView ? feedTheta : player.yawTo;
     const side = wrapAngle(orbit.theta - front) >= 0 ? 1 : -1;
-    const turn = feedView ? 0 : player.bowT != null || autoBow ? POSE_TURN_BOW : POSE_TURN;   // 벌린 팔은 등 뒤 비스듬한 쪽에서 잘 보인다
+    const turn = feedView ? 0 : player.bowT != null || autoBow ? POSE_TURN_BOW : POSE_TURN;   // 앞으로 내민 팔은 옆에서 잘 보인다
     camTheta = orbit.theta + wrapAngle(front + side * turn - orbit.theta) * poseK;
   }
   const baseDist = orbit.dist + (Math.min(orbit.dist, POSE_DIST) - orbit.dist) * poseK * (1 - feedViewK) + (FEED_DIST - orbit.dist) * feedViewK;
@@ -1940,6 +1956,7 @@ function enter() {
   $('whoName').textContent = name;
   updateHud(); drawBeads();
   sound.start();
+  tabs?.postMessage('entered');
   entered = true;
   orbit.theta = 0;
   $('hud').hidden = false; $('dock').hidden = false; $('modeBtn').hidden = false; $('ambBtn').hidden = false; drawAmbients();
