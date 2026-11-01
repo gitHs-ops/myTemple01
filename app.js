@@ -5,6 +5,7 @@ import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
+import { Cat } from './cats.js?v=1';
 import { BULDU, buildBuldu } from './buldu.js?v=3';
 
 const $ = (id) => document.getElementById(id);
@@ -1855,6 +1856,7 @@ function applyMode(next) {
   ['btnStone', 'btnFeed', 'btnTower', 'seasonBtn', 'skyBtn', 'bulduBtn'].forEach((id) => { $(id).hidden = !outside; });
   $('ambBtn').classList.toggle('below', outside);
   setSkyZ(next === 'mary' ? MARY.z : 0);
+  catsReset();
   skyGoal = null; skyBack = null; $('skyLabel').textContent = '하늘 보기';
   setStarMode(false, true);
   leafMesh.visible = next === 'temple';
@@ -2011,6 +2013,51 @@ document.querySelectorAll('.overlay').forEach((o) => {
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
 });
+
+/* 정원을 지나다니는 고양이 */
+const CAT_KIT = { scene, mesh, std, canvasTex };
+const strays = [new Cat(0, CAT_KIT, 4 + Math.random() * 8), new Cat(1, CAT_KIT, 22 + Math.random() * 25)];
+const catRand = (a, b) => a + Math.random() * (b - a);
+function catRoute() {
+  // 가장자리에서 들어와 안쪽을 두어 곳 들렀다가 다른 가장자리로 나간다
+  const atMary = mode === 'mary', b = ZONES[mode];
+  const edge = (side) => {
+    if (side === 0) return [b.xMin - 4, catRand(b.zMin + 3, b.zMax - 3)];
+    if (side === 1) return [b.xMax + 4, catRand(b.zMin + 3, b.zMax - 3)];
+    return [atMary ? catRand(-14, 14) : catRand(4, 18), b.zMax + 4];
+  };
+  const a = Math.floor(Math.random() * 3);
+  const c = (a + 1 + Math.floor(Math.random() * 2)) % 3;
+  const inside = () => {
+    for (let k = 0; k < 24; k++) {
+      const x = catRand(b.xMin + 2, b.xMax - 2), z = catRand(b.zMin + 2, b.zMax - 2);
+      const hit = OBSTACLES.some(([ox, oz, R, low]) => !low && Math.hypot(x - ox, z - oz) < R + 0.7);
+      const pond = !atMary && Math.hypot(x - POND.x, z - POND.z) < pondR(Math.atan2(x - POND.x, z - POND.z)) + 0.9;
+      if (!hit && !pond) return [x, z];
+    }
+    return [0, b.zMax - 4];
+  };
+  const mids = 1 + Math.floor(Math.random() * 3), points = [edge(a)];
+  for (let i = 0; i < mids; i++) points.push(inside());
+  points.push(edge(c));
+  return { points };
+}
+const catEnv = {
+  obstacles: OBSTACLES, people,
+  route: catRoute,
+  nextWait: () => catRand(10, 45),
+  y: (z) => heightAt(z),
+  big: (x, z) => {
+    if (mode !== 'garden') return null;
+    const a = Math.atan2(x - POND.x, z - POND.z);
+    return [POND.x, POND.z, pondR(a) + 0.35];
+  },
+};
+function catsReset() { strays.forEach((c, i) => c.hide(i ? catRand(18, 40) : catRand(3, 12))); }
+function catsTick(dt, t) {
+  if (mode !== 'garden' && mode !== 'mary') return;
+  strays.forEach((c) => c.update(dt, t, catEnv));
+}
 
 /* 법문과 말씀: 미리 쓴 글을 합성 음성으로 들려주고 자막을 보여 준다 */
 const TALKS = {
@@ -2392,6 +2439,7 @@ function frame(now) {
   else if (mode === 'mary') maryGarden.update(t, dt);
   towerTick(dt);
   speakerTick(dt, t);
+  catsTick(dt, t);
   starUni.time.value = t; starUni.ratio.value = pixelRatio;
   stepStarAnim(dt); updateConstellations(dt);
   if (!reduceMotion) catBreath.value = 0.007 * (0.5 + 0.5 * Math.sin(t * 2));
@@ -2496,5 +2544,5 @@ $('enterBtn').textContent = '법당에 들어가기';
 $('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, strays, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
