@@ -232,6 +232,29 @@ export function buildCathedral({ scene, mesh, std, canvasTex, seatGroup }) {
     });
   });
 
+  /* ───────── 고해소 ───────── */
+  const booth = new THREE.Group(); root.add(booth);
+  const BZ = Z(0), BX = -10;
+  const curtain = std(0x7c1f26, { roughness: 1 });
+  mesh(new THREE.BoxGeometry(1.9, 3.3, 3.9), woodMat, BX, 1.65, BZ, booth);
+  mesh(new THREE.BoxGeometry(2.1, 0.22, 4.1), darkWood, BX, 3.4, BZ, booth);
+  // 삼각 박공과 금빛 십자가
+  const gable = new THREE.Shape(); gable.moveTo(-1.9, 0); gable.lineTo(0, 1); gable.lineTo(1.9, 0); gable.closePath();
+  const g = mesh(new THREE.ExtrudeGeometry(gable, { depth: 0.2, bevelEnabled: false }), darkWood, BX + 0.86, 3.5, BZ, booth); g.rotation.y = Math.PI / 2;
+  mesh(new THREE.BoxGeometry(0.03, 0.46, 0.08), goldMat, BX + 1.08, 3.88, BZ, booth);
+  mesh(new THREE.BoxGeometry(0.03, 0.08, 0.28), goldMat, BX + 1.08, 3.96, BZ, booth);
+  // 가운데 사제 칸 문과 양쪽 고해자 칸의 붉은 휘장
+  mesh(new THREE.BoxGeometry(0.06, 2.8, 1.06), darkWood, BX + 0.97, 1.5, BZ, booth);
+  mesh(new THREE.BoxGeometry(0.02, 0.5, 0.56), std(0x241510), BX + 1.0, 2.25, BZ, booth);
+  [-1, 1].forEach((k) => {
+    const fold = mesh(new THREE.BoxGeometry(0.05, 2.7, 1.14), curtain, BX + 0.97, 1.45, BZ + k * 1.28, booth);
+    for (let i = -2; i <= 2; i++) mesh(new THREE.BoxGeometry(0.03, 2.7, 0.05), std(0x5d151b), BX + 1.0, 1.45, BZ + k * 1.28 + i * 0.22, booth);
+    fold.userData.curtain = true;
+    mesh(new THREE.BoxGeometry(0.08, 0.1, 1.2), goldMat, BX + 0.98, 2.84, BZ + k * 1.28, booth);
+    colliders.push([BX + 0.1, BZ + k * 1.3, 1.25]);
+  });
+  colliders.push([BX + 0.1, BZ, 1.25]);
+
   /* ───────── 빛 ───────── */
   const lights = [
     new THREE.PointLight(0xffc98a, 46, 22, 1.4), new THREE.PointLight(0xffd9a8, 30, 22, 1.5),
@@ -243,7 +266,7 @@ export function buildCathedral({ scene, mesh, std, canvasTex, seatGroup }) {
   seats.forEach((q) => { q.mesh.visible = false; });
 
   return {
-    root, seats, colliders,
+    root, seats, colliders, booth, confessSpot: { x: BX + 2.4, z: BZ + 1.28 },
     setActive(on) {
       root.visible = on;
       lights.forEach((l) => { l.visible = on; });

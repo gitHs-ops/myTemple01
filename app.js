@@ -3,7 +3,8 @@ import { GLTFLoader } from './vendor/GLTFLoader.min.js';
 import { Sound } from './sound.js?v=10';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=7';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
-import { CATHEDRAL, buildCathedral } from './cathedral.js?v=2';
+import { CATHEDRAL, buildCathedral } from './cathedral.js?v=3';
+import { MARY, buildMaryGarden } from './marygarden.js?v=1';
 import { BULDU, buildBuldu } from './buldu.js?v=3';
 
 const $ = (id) => document.getElementById(id);
@@ -688,6 +689,11 @@ cathedral.seats.forEach((q) => {
   q.mesh.userData.cushion = cushions.length;
   cushions.push(q);
 });
+const maryGarden = buildMaryGarden({ scene, mesh, std, canvasTex, seatGroup: cushionGroup });
+maryGarden.seats.forEach((q) => {
+  q.mesh.userData.cushion = cushions.length;
+  cushions.push(q);
+});
 let mode = 'temple';
 // 들어온 건물. 정원에서 돌아가는 곳이고 이웃이 앉는 곳이다
 const HALLS = { temple: { name: '법당', x: 0, z: 8.6, door: 14 }, cathedral: { name: '성당', x: CATHEDRAL.start.x, z: CATHEDRAL.start.z, door: CATHEDRAL.door } };
@@ -843,7 +849,7 @@ function makeMonk(name, mine = false) {
   };
 }
 const BOW_TIME = 6.4;
-const OBSTACLES = [[-4.5, 7.4, 0.8], [4.5, 7.4, 0.8], ...garden.colliders, ...cathedral.colliders];
+const OBSTACLES = [[-4.5, 7.4, 0.8], [4.5, 7.4, 0.8], ...garden.colliders, ...cathedral.colliders, ...maryGarden.colliders];
 const POND_MARGIN = 0.55;
 function pushOut(c, dx, dz, sp) {
   const slide = (ax, az, al, R) => {
@@ -1240,7 +1246,7 @@ let tap = null, pinch = 0;
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitV = new THREE.Vector3();
 let entered = false;
-const modalOpen = () => !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden || !$('seasonModal').hidden || !$('vowModal').hidden || !$('constModal').hidden || !$('stoneModal').hidden;
+const modalOpen = () => !$('confessModal').hidden || !$('beadsModal').hidden || !$('settingsModal').hidden || !$('chantModal').hidden || !$('seasonModal').hidden || !$('vowModal').hidden || !$('constModal').hidden || !$('stoneModal').hidden;
 
 canvas.addEventListener('pointerdown', (e) => {
   if (!entered) return;
@@ -1287,6 +1293,7 @@ function handleTap(cx, cy) {
   ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   if (mode === 'garden' && !skyBack && raycaster.intersectObject(bulduHead, true).length) { goToBuldu(); return; }
+  if (mode === 'cathedral' && raycaster.intersectObject(cathedral.booth, true).length) { goConfess(); return; }
   const hit = raycaster.intersectObjects(cushionGroup.children, false).find((h) => cushions[h.object.userData.cushion].zone === mode);
   if (hit) { goToCushion(hit.object.userData.cushion); return; }
   floorPlane.constant = mode === 'garden' ? -GROUND_Y : 0;
@@ -1296,6 +1303,7 @@ const ZONES = {
   temple: { xMin: -8.4, xMax: 8.4, zMin: -3.9, zMax: 11 },
   garden: GARDEN_BOUNDS,
   cathedral: CATHEDRAL.zone,
+  mary: MARY.zone,
 };
 function clampToZone(x, z) {
   const b = ZONES[mode];
@@ -1504,7 +1512,7 @@ $('btnSit').onclick = () => {
     updateSitBtn(); return;
   }
   const i = nearestFreeCushion();
-  if (i == null) { toast('빈 방석이 없습니다'); return; }
+  if (i == null) { toast('빈 자리가 없습니다'); return; }
   goToCushion(i);
 };
 const TRACKS = [
@@ -1776,35 +1784,38 @@ function applyMode(next) {
   stopTour();
   if (stoneClearing) { stoneClearing = false; garden.setStones(0); }
   marker.visible = false; keys.clear();
-  player.x = inGarden ? 0 : HALLS[next].x; player.z = inGarden ? 16 : HALLS[next].z;
+  const outside = inGarden || next === 'mary';
+  const at = inGarden ? { x: 0, z: 16 } : next === 'mary' ? MARY.start : HALLS[next];
+  player.x = at.x; player.z = at.z;
   player.yaw = player.yawTo = inGarden ? 0 : Math.PI;
-  orbit.theta = inGarden ? Math.PI : 0; orbit.phi = 1.22; orbit.dist = inGarden ? 9.5 : 8.2;
+  orbit.theta = inGarden ? Math.PI : 0; orbit.phi = 1.22; orbit.dist = outside ? 9.5 : 8.2;
   camSnap = true;
-  $('btnBow').hidden = inGarden; $('btnAuto').hidden = next !== 'temple';
-  const church = next === 'cathedral' || (inGarden && place === 'cathedral');
+  $('btnBow').hidden = inGarden; $('btnAuto').hidden = next !== 'temple'; $('btnConfess').hidden = next !== 'cathedral';
+  const church = place === 'cathedral';
   $('btnBowLabel').textContent = place === 'cathedral' ? '무릎 꿇기' : '절하기';
   $('btnHapLabel').textContent = place === 'cathedral' ? '기도' : '합장';
   $('btnBeadsLabel').textContent = church ? '묵주' : '염주';
   $('beadsTitle').textContent = church ? '108묵주' : '108염주';
   $('tabChant').hidden = church;
   cathedral.setActive(next === 'cathedral');
-  outdoors.visible = next !== 'cathedral';
+  outdoors.visible = next === 'temple' || inGarden;
+  maryGarden.setActive(next === 'mary');
   ['btnStone', 'btnFeed', 'btnTower', 'seasonBtn', 'skyBtn', 'bulduBtn'].forEach((id) => { $(id).hidden = !inGarden; });
   $('ambBtn').classList.toggle('below', inGarden);
   skyGoal = null; skyBack = null; $('skyLabel').textContent = '하늘 보기';
   setStarMode(false, true);
-  leafMesh.visible = !inGarden;
+  leafMesh.visible = next === 'temple';
   garden.setActive(inGarden);
-  $('modeLabel').textContent = inGarden ? `${HALLS[place].name}으로` : '정원으로';
-  $('modeIconLeaf').style.display = inGarden ? 'none' : ''; $('modeIconHall').style.display = inGarden ? '' : 'none';
-  sound.setGarden(inGarden);
+  $('modeLabel').textContent = outside ? `${HALLS[place].name}으로` : church ? '성모 동산으로' : '정원으로';
+  $('modeIconLeaf').style.display = outside ? 'none' : ''; $('modeIconHall').style.display = outside ? '' : 'none';
+  sound.setGarden(outside);
   updateHud(); updateSitBtn();
-  toast(inGarden ? '정원입니다. 연못가 돌에 앉아 쉬어 가세요' : next === 'cathedral' ? '성당입니다. 긴 의자에 앉아 쉬어 가세요' : '법당으로 돌아왔습니다');
+  toast(inGarden ? '정원입니다. 연못가 돌에 앉아 쉬어 가세요' : next === 'mary' ? '성모 동산입니다. 벤치에 앉아 쉬어 가세요' : next === 'cathedral' ? '성당입니다. 긴 의자에 앉아 쉬어 가세요' : '법당으로 돌아왔습니다');
 }
 $('modeBtn').onclick = () => {
   if (switching) return;
   switching = true;
-  const fade = $('fade'), next = mode === 'garden' ? place : 'garden', wait = reduceMotion ? 0 : 420;
+  const fade = $('fade'), next = mode === place ? (place === 'cathedral' ? 'mary' : 'garden') : place, wait = reduceMotion ? 0 : 420;
   fade.classList.add('on');
   setTimeout(() => {
     applyMode(next);
@@ -1933,7 +1944,8 @@ function openModal(id) {
   $(id).querySelector('.modal-x').focus();
 }
 function closeModals() {
-  ['beadsModal', 'settingsModal', 'chantModal', 'seasonModal', 'vowModal', 'constModal', 'stoneModal'].forEach((id) => { $(id).hidden = true; });
+  leaveBooth();
+  ['beadsModal', 'settingsModal', 'chantModal', 'seasonModal', 'vowModal', 'constModal', 'stoneModal', 'confessModal'].forEach((id) => { $(id).hidden = true; });
   lastFocus?.focus?.(); lastFocus = null;
 }
 document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = closeModals; });
@@ -1941,11 +1953,98 @@ document.querySelectorAll('.overlay').forEach((o) => {
   o.addEventListener('pointerdown', (e) => { if (e.target === o) closeModals(); });
   o.addEventListener('keydown', (e) => {
     if (e.key !== 'Tab') return;
-    const f = [...o.querySelectorAll('button, input')], first = f[0], last = f[f.length - 1];
+    const f = [...o.querySelectorAll('button, input, textarea')].filter((el) => el.offsetParent), first = f[0], last = f[f.length - 1];
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
 });
+
+/* 고해성사: 쓴 글은 어디에도 저장하거나 보내지 않고, 다음 단계로 넘어가면 바로 지운다 */
+const CONFESS_TOPICS = [
+  { id: 'god', name: '하느님과의 관계', q: '기도와 주일 미사를 소홀히 하지 않았습니까?', adv: '하루 한 번, 짧아도 좋으니 하느님께 말을 건네 보십시오. 관계는 긴 기도보다 자주 찾는 데서 회복됩니다.' },
+  { id: 'family', name: '가족', q: '가까운 사람에게 함부로 대하거나 무심하지 않았습니까?', adv: '가까운 사람일수록 고맙다는 말과 미안하다는 말이 늦어집니다. 오늘 한마디만 먼저 건네 보십시오.' },
+  { id: 'neighbor', name: '이웃과 미움', q: '누군가를 미워하거나 험담하지 않았습니까?', adv: '미움을 바로 없애려 애쓰기보다, 그 사람을 위해 짧게 기도해 보십시오. 마음은 그렇게 조금씩 풀립니다.' },
+  { id: 'truth', name: '거짓과 정직', q: '거짓말로 자신을 지키거나 남을 속이지 않았습니까?', adv: '바로잡을 수 있는 거짓이라면 작은 것부터 바로잡아 보십시오. 진실은 말하는 사람을 먼저 가볍게 합니다.' },
+  { id: 'work', name: '일과 책임', q: '맡은 일을 미루거나 남에게 떠넘기지 않았습니까?', adv: '모든 것을 한꺼번에 만회하려 하지 말고, 오늘 할 수 있는 일 하나를 정성껏 해 보십시오.' },
+  { id: 'self', name: '나 자신', q: '탐욕과 교만에 휩쓸리거나 자신을 함부로 대하지 않았습니까?', adv: '자신을 너무 몰아세우지 마십시오. 하느님께서 아끼시는 사람을 함부로 대하는 것도 돌아볼 일입니다.' },
+];
+const CONFESS_GENERAL = '오늘 이 자리에 앉아 자신을 돌아본 것만으로도 귀한 걸음입니다. 서두르지 말고, 할 수 있는 만큼 조금씩 고쳐 가십시오.';
+const CONFESS_PENANCE = ['주님의 기도와 성모송을 세 번 천천히 바치십시오.', '묵주 한 단, 열 알을 천천히 넘기며 기도하십시오.', '오늘 한 사람에게 먼저 따뜻한 말을 건네십시오.', '잠들기 전 오늘 고마웠던 일 세 가지를 떠올리며 감사드리십시오.'];
+const CONFESS_TITLES = ['들어가며', '양심 성찰', '고백', '통회', '권고와 보속'];
+let inBooth = false, confessTopics = new Set();
+function confessStep(n) {
+  document.querySelectorAll('#confessModal [data-step]').forEach((el) => { el.hidden = +el.dataset.step !== n; });
+  $('confessTitle').textContent = CONFESS_TITLES[n];
+  $('confessProgress').textContent = `${n + 1} / ${CONFESS_TITLES.length}`;
+  $('confessModal').querySelector('.modal').scrollTop = 0;
+}
+function drawConfessTopics() {
+  const box = $('confessTopics'); box.textContent = '';
+  CONFESS_TOPICS.forEach((tp) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'confess-topic'; b.setAttribute('aria-pressed', 'false');
+    const nm = document.createElement('b'); nm.textContent = tp.name;
+    const qs = document.createElement('span'); qs.textContent = tp.q;
+    b.append(nm, qs);
+    b.onclick = () => {
+      const on = !confessTopics.has(tp.id);
+      if (on) confessTopics.add(tp.id); else confessTopics.delete(tp.id);
+      b.setAttribute('aria-pressed', String(on));
+    };
+    box.append(b);
+  });
+}
+function goConfess() {
+  if (mode !== 'cathedral' || inBooth) return;
+  stopAuto();
+  const q = cathedral.confessSpot;
+  setTarget(player, q.x, q.z, null, () => {
+    player.yawTo = -Math.PI / 2;
+    setTimeout(() => {
+      if (mode !== 'cathedral' || player.target || modalOpen()) return;
+      inBooth = true;
+      player.root.visible = false;
+      confessTopics = new Set();
+      $('confessText').value = '';
+      drawConfessTopics(); confessStep(0);
+      sound.bead();
+      openModal('confessModal');
+    }, 450);
+  });
+  marker.visible = false; updateSitBtn();
+  toast('고해소로 갑니다');
+}
+function leaveBooth() {
+  if (!inBooth) return;
+  inBooth = false;
+  $('confessText').value = '';
+  confessTopics = new Set();
+  player.root.visible = true;
+}
+$('btnConfess').onclick = goConfess;
+$('confessStart').onclick = () => { sound.bead(); confessStep(1); };
+$('confessNext').onclick = () => { sound.bead(); confessStep(2); $('confessText').focus(); };
+$('confessDone').onclick = () => {
+  $('confessText').value = '';   // 쓴 글은 여기서 지운다
+  sound.bead(); confessStep(3);
+};
+$('confessContrite').onclick = () => {
+  const picked = CONFESS_TOPICS.filter((tp) => confessTopics.has(tp.id)).slice(0, 2);
+  const box = $('confessAdvice'); box.textContent = '';
+  (picked.length ? picked.map((tp) => tp.adv) : [CONFESS_GENERAL]).forEach((txt) => {
+    const para = document.createElement('p'); para.textContent = txt; box.append(para);
+  });
+  $('confessPenance').textContent = pick(CONFESS_PENANCE);
+  sound.bell(0.45); confessStep(4);
+};
+$('confessRosary').onclick = () => {
+  closeModals();
+  $('btnBeads').click();
+};
+$('confessFinish').onclick = () => {
+  closeModals();
+  sound.bell(0.6); toast('평안히 가십시오', 4000);
+};
 
 /* 염주 */
 const beadEls = [];
@@ -2079,7 +2178,7 @@ function updateCamera(dt) {
   const camDist = baseDist * camFit;
   camPos.set(
     camTarget.x + camDist * sinP * Math.sin(camTheta),
-    clamp(camTarget.y + camDist * Math.cos(camPhi), groundY + 0.5, mode === 'garden' ? 13 : mode === 'cathedral' ? CATHEDRAL.cam.yMax : 6.4),
+    clamp(camTarget.y + camDist * Math.cos(camPhi), groundY + 0.5, mode === 'garden' || mode === 'mary' ? 13 : mode === 'cathedral' ? CATHEDRAL.cam.yMax : 6.4),
     camTarget.z + camDist * sinP * Math.cos(camTheta)
   );
   if (mode === 'cathedral') { const b = CATHEDRAL.cam; camPos.x = clamp(camPos.x, b.xMin, b.xMax); camPos.z = clamp(camPos.z, b.zMin, b.zMax); }
@@ -2111,6 +2210,7 @@ function frame(now) {
   strollerTick(t);
   garden.update(t, dt);
   if (mode === 'cathedral') cathedral.update(t);
+  else if (mode === 'mary') maryGarden.update(t);
   towerTick(dt);
   starUni.time.value = t; starUni.ratio.value = pixelRatio;
   stepStarAnim(dt); updateConstellations(dt);
@@ -2206,5 +2306,5 @@ $('enterBtn').textContent = '법당에 들어가기';
 $('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };

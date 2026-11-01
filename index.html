@@ -10,7 +10,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%236366f1'/%3E%3Cpath d='M16 7c3 4 3 7 0 10-3-3-3-6 0-10zM7 15c4 0 7 1 9 5-4 1-7-1-9-5zm18 0c-4 0-7 1-9 5 4 1 7-1 9-5zM9 23h14' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 <canvas id="scene" aria-label="법당 3D 화면"></canvas>
@@ -71,6 +71,7 @@
   <button id="btnTower" aria-pressed="false" title="탑을 오른쪽에 두고 세 바퀴 돌기" hidden><svg viewBox="0 0 24 24"><path d="M12 3v3M8 6h8l-1 3H9zM7 9h10l-1 3H8zM6 12h12l-1 3H7zM5 15h14v5H5z"/></svg><span>탑돌기</span></button>
   <button id="btnSit" title="자리에 앉기"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="17" rx="9" ry="3.4"/><circle cx="12" cy="7" r="3.2"/><path d="M12 10.5v3"/></svg><span id="btnSitLabel">앉기</span></button>
   <button id="btnBeads" title="108염주"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2"/><circle cx="19" cy="9" r="2"/><circle cx="16.5" cy="17.5" r="2"/><circle cx="7.5" cy="17.5" r="2"/><circle cx="5" cy="9" r="2"/></svg><span id="btnBeadsLabel">염주</span></button>
+  <button id="btnConfess" title="고해소로 가기" hidden><svg viewBox="0 0 24 24"><path d="M5 21V10l7-6 7 6v11M9 21v-7h6v7M12 7v3M10.5 8.5h3"/></svg><span>고해성사</span></button>
   <button id="btnChant" aria-pressed="false" title="염불, 명상, 배경 소리 고르기"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg><span>소리 고르기</span></button>
 </nav>
 
@@ -98,6 +99,44 @@
 </section>
 
 <!-- 염주 모달 -->
+<div class="overlay" id="confessModal" hidden>
+  <div class="glass modal confess" role="dialog" aria-modal="true" aria-labelledby="confessTitle">
+    <button class="modal-x" data-close aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <p class="confess-eyebrow">고해성사 묵상 · <span id="confessProgress">1 / 5</span></p>
+    <h2 id="confessTitle">들어가며</h2>
+    <div data-step="0">
+      <p class="confess-prayer">성부와 성자와 성령의 이름으로. 아멘.</p>
+      <p>성호를 긋고 숨을 고르세요. 지난 시간을 천천히 돌아봅니다.</p>
+      <p class="confess-note">이곳은 혼자 돌아보는 온라인 묵상입니다. 실제 고해성사는 성당에서 사제를 직접 만나 받으시기 바랍니다. 사제의 말도 미리 준비된 글이며, 사람이 듣거나 답하지 않습니다.</p>
+      <div class="modal-actions"><button class="ghost wide" data-close type="button">닫기</button><button class="primary wide" id="confessStart" type="button">시작하기</button></div>
+    </div>
+    <div data-step="1" hidden>
+      <p>마음에 걸리는 것을 골라 보세요. 고르지 않아도 됩니다.</p>
+      <div id="confessTopics"></div>
+      <div class="modal-actions"><button class="ghost wide" data-close type="button">닫기</button><button class="primary wide" id="confessNext" type="button">다음</button></div>
+    </div>
+    <div data-step="2" hidden>
+      <p>하느님께 말씀드리듯 적어 보세요. 적지 않고 마음속으로 말씀드려도 됩니다.</p>
+      <textarea id="confessText" rows="6" maxlength="4000" autocomplete="off" spellcheck="false" aria-label="고백" placeholder="이 글은 저장되지 않고 어디로도 보내지 않습니다."></textarea>
+      <p class="confess-note">다음으로 넘어가거나 창을 닫으면 바로 지워집니다.</p>
+      <p class="confess-note">혼자 감당하기 힘든 일이라면 혼자 두지 마세요. 자살예방 상담전화 109 (24시간)</p>
+      <div class="modal-actions"><button class="ghost wide" data-close type="button">닫기</button><button class="primary wide" id="confessDone" type="button">다 말씀드렸습니다</button></div>
+    </div>
+    <div data-step="3" hidden>
+      <p class="confess-note">방금 적은 글을 지웠습니다.</p>
+      <p>잘못을 뉘우치는 마음으로 함께 기도합니다.</p>
+      <p class="confess-prayer">하느님, 제 잘못을 진심으로 뉘우칩니다. 자비를 베풀어 주시고, 다시 시작할 힘을 주소서. 아멘.</p>
+      <div class="modal-actions"><button class="ghost wide" data-close type="button">닫기</button><button class="primary wide" id="confessContrite" type="button">마음을 다해 기도합니다</button></div>
+    </div>
+    <div data-step="4" hidden>
+      <div id="confessAdvice"></div>
+      <p class="confess-label">오늘의 보속</p>
+      <p class="confess-prayer" id="confessPenance"></p>
+      <p class="confess-note">죄의 용서는 성당에서 받는 고해성사로 이어 가시기 바랍니다.</p>
+      <div class="modal-actions"><button class="ghost wide" id="confessRosary" type="button">묵주 들기</button><button class="primary wide" id="confessFinish" type="button">마치기</button></div>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="beadsModal" hidden>
   <div class="glass modal" role="dialog" aria-modal="true" aria-labelledby="beadsTitle">
     <button class="modal-x" data-close aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
@@ -213,6 +252,8 @@
       <li><b>정원</b> 왼쪽 위 버튼으로 오갑니다. 돌탑을 쌓고 잉어에게 먹이를 주며, 연못가 돌에 앉을 수 있습니다.</li>
       <li><b>탑돌기</b> 정원에서 누르면 탑을 오른쪽에 두고 손을 모은 채 세 바퀴 돕니다. 다시 누르거나 움직이면 멈춥니다.</li>
       <li><b>성당</b> 첫 화면에서 들어갑니다. 긴 의자에 앉아 기도하고 무릎을 꿇을 수 있으며, 소리 고르기에 오르간과 성가대 허밍이 있습니다.</li>
+      <li><b>성모 동산</b> 성당에서 왼쪽 위 버튼으로 나갑니다. 동굴 속 성모상과 장미 화단, 분수가 있습니다.</li>
+      <li><b>고해성사</b> 성당의 고해소에서 혼자 돌아보는 묵상입니다. 실제 성사를 대신하지 않으며, 적은 글은 저장하지도 보내지도 않습니다.</li>
       <li><b>기록</b> 절, 염주, 돌탑 수는 이 기기에만 저장됩니다.</li>
       <li><b>안내</b> 법당과 정원의 다른 동자승은 실제 접속자가 아닌 연출입니다.</li>
       <li><b>별자리</b> 정원의 하늘 보기에서 별 보기를 누르면 밤하늘로 바뀌고, 별자리를 누르면 설명이 나옵니다. 별자리는 실제 좌표로 계절 저녁 9시 무렵의 서울 하늘에 놓았고, 나머지 작은 별과 은하수는 꾸밈입니다.</li>
@@ -229,6 +270,6 @@
   <p>이 브라우저에서 3D 화면(WebGL)을 쓸 수 없습니다. 다른 브라우저로 접속해 주세요.</p>
 </div>
 
-<script type="module" src="app.js?v=34"></script>
+<script type="module" src="app.js?v=35"></script>
 </body>
 </html>
