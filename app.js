@@ -306,7 +306,7 @@ function applyTime() {
 }
 
 /* ───────── 산·숲·마당 ───────── */
-const forest = { leaf: null, items: [] };
+const forest = { leaf: null, items: [], trees: [] };
 const ground = mesh(new THREE.CircleGeometry(420, 48), new THREE.MeshLambertMaterial({ color: 0x6f8f5d }), 0, -0.9, 0, scene);
 ground.rotation.x = -Math.PI / 2;
 
@@ -342,6 +342,7 @@ mountainRing(150, 38, 34, 0x8aa49a, 7.7);
     do { const a = Math.random() * Math.PI * 2, r = rand(15, 76); x = Math.sin(a) * r; z = Math.cos(a) * r; }
     while ((Math.abs(x) < 14 && z > -14 && z < 13) || (Math.abs(x) < 25 && z > 12 && z < 51) || Math.hypot(x + 6, z - 58) < 13 || (Math.abs(x) < 16 && z < -52));   // 금동 불상 자리는 비운다
     const sc = rand(1, 2.2);
+    forest.trees.push([x, z, 1.1 * sc]);
     p.set(x, -0.9 + 1.1 * sc, z); s.set(sc, sc, sc); m.compose(p, q, s); tr.setMatrixAt(i, m);
     const broad = Math.random() < 0.34, c = pick(GREENS), shade = rand(0, 1);
     for (let t = 0; t < 3; t++) {
@@ -867,7 +868,7 @@ function makeMonk(name, mine = false) {
   const label = nameSprite(name, mine); root.add(label);
   scene.add(root);
   return {
-    name, root, body, robe, upper, head, arms, feet, mine, label,
+    name, root, body, robe, upper, head, arms, feet, mine, label, crown,
     x: 0, z: 0, yaw: Math.PI, yawTo: Math.PI, target: null, cushion: null, leaving: false,
     sit: 0, sitTo: 0, hap: 0, hapTo: 0, hapUntil: 0, bowT: null, phase: Math.random() * 6, walk: 0, stuck: 0, pop: 1, onArrive: null,
   };
@@ -902,7 +903,7 @@ function pushOut(c, dx, dz, sp) {
 /* 길찾기: 앞을 더듬어 물체와 사람을 미리 돌아간다 */
 const PERSON_R = 0.8, AVOID_LOOK = 2.4, OBJ_CLEAR = 0.2, ARRIVE_NEAR = 0.9, GIVE_UP = 14;
 const AVOID_TURNS = [0.3, 0.6, 0.9, 1.2, 1.5, 1.8, 2.2, 2.6];
-const people = () => (player ? [player, ...npcs, ...strollers] : [...npcs, ...strollers]);
+const people = () => (player ? [player, ...npcs, ...strollers, ...tourMates] : [...npcs, ...strollers, ...tourMates]);
 const nearObs = [], nearPeople = [];
 let hitX = 0, hitZ = 0, hitBig = false;   // 앞을 막은 물체의 중심. 큰 것은 한번 고른 방향으로 끝까지 돈다
 function gatherNear(c, look) {
@@ -1237,6 +1238,7 @@ function communityTick(t) {
 
 /* 정원을 거니는 동자승 */
 const strollers = [];
+const tourMates = [];   // 탑돌기를 함께 도는 이웃
 const WAY = [[0, 18], [2.8, 26], [1.5, 37], [-3, 43], [-11, 41.5], [9, 37], [8.5, 28], [7, 15.6], [-9, 19], [-14, 21], [1, 32.5]];
 function strollerTick(t) {
   const want = state.npc ? 3 : 0;
@@ -1793,7 +1795,89 @@ function stopTour() {
   tour = null;
   player.walkSpeed = 0; player.hapTo = 0; player.hapUntil = 0;
   $('btnTower').setAttribute('aria-pressed', 'false');
+  const now = performance.now() / 1000;
+  for (const m of tourMates) if (!m.leaving) { m.target = null; m.onArrive = null; m.walkSpeed = 0; m.hapTo = 0; m.hapUntil = 0; m.leaveAt = now + 0.6; }
 }
+/* 함께 도는 이웃: 자기 자리 바로 바깥에서 나타나 내 앞뒤에 서서 같은 걸음으로 돈다 */
+function callMates(C) {
+  const live = tourMates.filter((m) => !m.leaving);
+  live.forEach((m) => { m.leaveAt = null; });
+  const off = 2 * Math.asin(1.25 / C.R), want = state.npc ? [off, -off] : [];
+  for (const o of want) {
+    const held = live.find((m) => m.off === o);
+    if (held) continue;
+    const m = makeMonk(uniqueName());
+    const slot = Math.atan2(player.x - C.x, player.z - C.z) + o;
+    let x = C.x + Math.sin(slot) * C.R, z = C.z + Math.cos(slot) * C.R;
+    for (const out of [3, 2.2, 1.4]) {
+      const px = C.x + Math.sin(slot) * (C.R + out), pz = C.z + Math.cos(slot) * (C.R + out);
+      const inPond = mode === 'garden' && Math.hypot(px - POND.x, pz - POND.z) < pondR(Math.atan2(px - POND.x, pz - POND.z)) + 1;
+      const [cx, cz] = clampToZone(px, pz);
+      if (!inPond && cx === px && cz === pz && !OBSTACLES.some(([ox, oz, R]) => Math.hypot(px - ox, pz - oz) < R + 0.6)) { x = px; z = pz; break; }
+    }
+    m.x = x; m.z = z; m.pop = 0.01; m.off = o; m.joined = false; m.leaveAt = null; m.joinBy = performance.now() / 1000 + 8;
+    m.yaw = m.yawTo = Math.atan2(C.x - x, C.z - z);
+    tourMates.push(m);
+  }
+}
+function matesFinish(C) {
+  const now = performance.now() / 1000;
+  for (const m of tourMates) {
+    if (m.leaving || !m.joined) continue;
+    m.yawTo = mode === 'mary' ? Math.PI : Math.atan2(C.x - m.x, C.z - m.z);
+    m.hapTo = 1; m.hapUntil = now + 4; m.leaveAt = now + 4.6; m.home = C;
+  }
+}
+function removeMate(m) {
+  usedNames.delete(m.name);
+  m.root.traverse((o) => { if (o.isSprite) { o.material.map.dispose(); o.material.dispose(); } });
+  m.crown.geometry.dispose();
+  scene.remove(m.root);
+  tourMates.splice(tourMates.indexOf(m), 1);
+}
+function aimMate(m, x, z, t) {
+  if (m.target) { m.target.x = x; m.target.z = z; m.bestAt = t; return; }
+  const hap = m.hapTo;
+  setTarget(m, x, z);
+  m.hapTo = hap;
+}
+function matesTick(dt, t) {
+  for (const m of [...tourMates]) {
+    if (m.leaving) {
+      const near = !m.target || Math.hypot(m.target.x - m.x, m.target.z - m.z) < 1.5;
+      if (near) m.pop = Math.max(0.01, m.pop - dt / 0.6);
+      if (m.pop <= 0.01) removeMate(m);
+      continue;
+    }
+    m.pop = Math.min(1, m.pop + dt / 0.6);
+    if (tour) {
+      const C = tour.c, pa = Math.atan2(player.x - C.x, player.z - C.z), slot = pa + m.off;
+      const sx = C.x + Math.sin(slot) * C.R, sz = C.z + Math.cos(slot) * C.R;
+      if (!m.joined) {
+        m.walkSpeed = 0;
+        aimMate(m, sx, sz, t);
+        if (Math.hypot(sx - m.x, sz - m.z) < 1.1) m.joined = true;
+        else if (t > m.joinBy) { m.x = sx; m.z = sz; m.pop = 0.01; m.target = null; m.joined = true; }   // 길이 막혔으면 제자리에 다시 나타난다
+        continue;
+      }
+      // 도는 방향은 각도가 줄어드는 쪽. 자리보다 앞서면 늦추고 뒤처지면 서두른다
+      const ma = Math.atan2(m.x - C.x, m.z - C.z), ahead = wrapAngle(slot - ma), base = player.walkSpeed || 0.9;
+      m.hapTo = 1; m.hapUntil = 0;
+      const pace = THREE.MathUtils.clamp(1 - ahead * 7, 0, 1.9);
+      if (pace < 0.15) { m.target = null; continue; }
+      m.walkSpeed = base * pace;
+      const la = ma - 1.2 / C.R;
+      aimMate(m, C.x + Math.sin(la) * C.R, C.z + Math.cos(la) * C.R, t);
+    } else if (m.leaveAt != null && t > m.leaveAt) {
+      const C = m.home || TOWER_NEAR(), a = Math.atan2(m.x - C.x, m.z - C.z);
+      const [x, z] = clampToZone(m.x + Math.sin(a) * 8, m.z + Math.cos(a) * 8);
+      m.leaving = true; m.walkSpeed = 0; m.hapTo = 0; m.hapUntil = 0;
+      setTarget(m, x, z);
+    }
+  }
+}
+const TOWER_NEAR = () => (mode === 'mary' ? MARY_FOUNTAIN : TOWER);
+function clearMates() { [...tourMates].forEach(removeMate); }
 function tourStep() {
   const a = tour.start - (tour.step / TOWER_STEPS) * Math.PI * 2;
   const C = tour.c, x = C.x + Math.sin(a) * C.R, z = C.z + Math.cos(a) * C.R;
@@ -1816,8 +1900,9 @@ function towerTick(dt) {
     if (round >= TOWER_ROUNDS) {
       const C = tour.c, name = tourName();
       stopTour();
+      matesFinish(C);
       player.yawTo = mode === 'mary' ? Math.PI : Math.atan2(C.x - player.x, C.z - player.z);
-      player.hapTo = 1; player.hapUntil = performance.now() / 1000 + 4; poseOff = false;
+      player.hapTo = 1; player.hapUntil = performance.now() / 1000 + 4; poseOff = tourMates.some((m) => m.joined);   // 함께 돈 이웃과 탑이 다 보이도록 뒤에서 본다
       sound.bell(0.7); toast(`${name} ${TOWER_ROUNDS}바퀴를 마쳤습니다`, 4000);
       return;
     }
@@ -1832,6 +1917,7 @@ $('btnTower').onclick = () => {
   const C = mode === 'mary' ? MARY_FOUNTAIN : TOWER;
   tour = { c: C, start: Math.atan2(player.x - C.x, player.z - C.z), step: 0, wp: null };
   player.walkSpeed = mode === 'mary' ? 0.55 : 0.9;
+  callMates(C);
   $('btnTower').setAttribute('aria-pressed', 'true');
   tourStep();
   updateSitBtn();
@@ -1849,6 +1935,7 @@ function applyMode(next) {
   player.bowT = null; player.sit = player.sitTo = 0; player.hapTo = 0; player.hapUntil = 0;
   placing = placingDrop = false; player.feedT = null; feedViewUntil = 0;
   stopTour();
+  clearMates();
   if (stoneClearing) { stoneClearing = false; garden.setStones(0); }
   marker.visible = false; keys.clear();
   const outside = inGarden || next === 'mary';
@@ -2368,7 +2455,7 @@ let feedViewK = 0, feedViewUntil = 0, feedTheta = 0;   // 먹이 줄 때는 어�
 let poseK = 0, poseOff = false, atBuldu = false, bulduLift = 0, bulduBack = null;
 const POSE_TURN = 1.7, POSE_TURN_BOW = 1.95, POSE_DIST = 4.8, FEED_TURN = 2.45, FEED_DIST = 6.4, FEED_PHI = 0.92;
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-const VIEW_BLOCKERS = [...OBSTACLES, [-9, 7.4, 0.45], [9, 7.4, 0.45]];
+const VIEW_BLOCKERS = [...OBSTACLES, [-9, 7.4, 0.45], [9, 7.4, 0.45], ...forest.trees.filter(([x, z]) => Math.abs(x) < 36 && z > -14 && z < 62)];   // 정원 둘레 숲의 나무에도 카메라가 파묻히지 않게 한다
 function viewFit(x, z, theta, reach) {
   const ox = reach * Math.sin(theta), oz = reach * Math.cos(theta);
   for (let k = 3; k <= 12; k++) {
@@ -2447,12 +2534,14 @@ function frame(now) {
   if (player) updateMonk(player, dt, t);
   npcs.forEach((n) => updateMonk(n, dt, t));
   strollers.forEach((n) => updateMonk(n, dt, t));
+  tourMates.forEach((n) => updateMonk(n, dt, t));
   npcTick(t);
   strollerTick(t);
   garden.update(t, dt);
   if (mode === 'cathedral') cathedral.update(t);
   else if (mode === 'mary') maryGarden.update(t, dt);
   towerTick(dt);
+  matesTick(dt, t);
   speakerTick(dt, t);
   catsTick(dt, t);
   bulduHead.userData.setLight(THREE.MathUtils.clamp((hemi.intensity - 0.7) / 0.7, 0.38, 1));
@@ -2560,5 +2649,5 @@ $('enterBtn').textContent = '법당에 들어가기';
 $('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, strays, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, strays, tourMates, forest, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
