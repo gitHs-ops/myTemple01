@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
-import { Sound } from './sound.js?v=8';
+import { Sound } from './sound.js?v=9';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=3';
 
 const $ = (id) => document.getElementById(id);
@@ -634,7 +634,7 @@ function applySeason() {
 const G = {
   head: new THREE.SphereGeometry(0.43, 24, 18), robe: new THREE.LatheGeometry(
     [[0, 0.12], [0.44, 0.12], [0.46, 0.2], [0.38, 0.5], [0.27, 0.74], [0.16, 0.84], [0, 0.86]].map(([r, h]) => new THREE.Vector2(r, h)), 20),
-  arm: new THREE.CapsuleGeometry(0.075, 0.26, 4, 8), hand: new THREE.SphereGeometry(0.075, 10, 8),
+  arm: new THREE.CapsuleGeometry(0.075, 0.14, 4, 8), fore: new THREE.CapsuleGeometry(0.07, 0.18, 4, 8), hand: new THREE.SphereGeometry(0.075, 12, 10),
   foot: new THREE.SphereGeometry(0.11, 10, 8), eye: new THREE.SphereGeometry(0.038, 8, 8),
   cheek: new THREE.CircleGeometry(0.058, 12), ear: new THREE.SphereGeometry(0.07, 10, 8),
   mouth: new THREE.TorusGeometry(0.04, 0.009, 5, 10, Math.PI * 0.85), sash: new THREE.TorusGeometry(0.31, 0.04, 6, 18),
@@ -660,6 +660,24 @@ function nameSprite(text, mine) {
   s.scale.set((w / 68) * 0.27, 0.27, 1); s.position.y = 1.86;
   return s;
 }
+/* 합장 자세: 팔꿈치를 옆으로 벌리고 두 손을 가슴 앞에 길게 모은다 */
+const ARM_UP = 0.24, ARM_FORE = 0.3;
+const HAP_POSE = (() => {
+  const down = new THREE.Vector3(0, -1, 0), out = {};
+  const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12, 0, 0));
+  for (const s of [-1, 1]) {
+    const S = new THREE.Vector3(s * 0.25, 0.74, 0.02), E = new THREE.Vector3(s * 0.46, 0.58, 0.3), H = new THREE.Vector3(s * 0.058, 0.8, 0.66);
+    const u = E.clone().sub(S), f = H.clone().sub(E);
+    const qU = new THREE.Quaternion().setFromUnitVectors(down, u.clone().normalize());
+    const qF = new THREE.Quaternion().setFromUnitVectors(down, f.clone().normalize());
+    out[s] = {
+      upper: qU, elbow: qU.clone().invert().multiply(qF), wrist: qF.clone().invert().multiply(tilt),
+      lenU: u.length() / ARM_UP, lenF: f.length() / ARM_FORE,
+    };
+  }
+  return out;
+})();
+const qRest = new THREE.Quaternion(), qOne = new THREE.Quaternion(), eulerArm = new THREE.Euler();
 function makeMonk(name, mine = false) {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
   const blob = mesh(G.blob, M.blob, 0, 0.012, 0, root); blob.rotation.x = -Math.PI / 2;
@@ -678,8 +696,12 @@ function makeMonk(name, mine = false) {
   const m = mesh(G.mouth, M.mouth, 0, -0.14, 0.405, head); m.rotation.z = Math.PI + 0.25;
   const arms = [-1, 1].map((s) => {
     const a = new THREE.Group(); a.position.set(s * 0.25, 0.74, 0.02); upper.add(a);
-    mesh(G.arm, robeMat, 0, -0.17, 0, a); mesh(G.hand, M.skin, 0, -0.39, 0, a);
-    return { a, s };
+    const up = mesh(G.arm, robeMat, 0, -ARM_UP / 2, 0, a);
+    const e = new THREE.Group(); e.position.y = -ARM_UP; a.add(e);
+    const fore = mesh(G.fore, robeMat, 0, -ARM_FORE / 2, 0, e);
+    const w = new THREE.Group(); w.position.y = -ARM_FORE; e.add(w);
+    const hand = mesh(G.hand, M.skin, 0, 0, 0, w);
+    return { a, s, up, e, fore, w, hand, pose: HAP_POSE[s] };
   });
   const feet = [-1, 1].map((s) => { const f = mesh(G.foot, M.foot, s * 0.17, 0.08, 0.1, root); f.scale.set(1, 0.7, 1.4); return { f, s }; });
   const label = nameSprite(name, mine); root.add(label);
@@ -690,7 +712,7 @@ function makeMonk(name, mine = false) {
     sit: 0, sitTo: 0, hap: 0, hapTo: 0, hapUntil: 0, bowT: null, phase: Math.random() * 6, walk: 0, stuck: 0, pop: 1, onArrive: null,
   };
 }
-const BOW_TIME = 4.8;
+const BOW_TIME = 6.4;
 const OBSTACLES = [[-4.5, 7.4, 0.8], [4.5, 7.4, 0.8], ...garden.colliders];
 const POND_MARGIN = 0.55;
 function pushOut(c, dx, dz, sp) {
@@ -751,19 +773,21 @@ function updateMonk(c, dt, t) {
   c.sit = damp(c.sit, c.sitTo, 6, dt);
   if (c.hapUntil && t > c.hapUntil) { c.hapTo = 0; c.hapUntil = 0; }
 
-  let kneel = 0, down = 0;
+  let kneel = 0, down = 0, rise = 0;
   if (c.bowT != null) {
     c.bowT += dt / BOW_TIME;
     const b = c.bowT;
-    kneel = smooth(0, 0.22, b) * (1 - smooth(0.78, 1, b));
-    down = smooth(0.22, 0.48, b) * (1 - smooth(0.62, 0.84, b));
+    // 합장하고 일어나 → 앉고 → 이마를 숙였다가 → 일으켜 앉고 → 다시 일어난다
+    rise = smooth(0, 0.14, b) * (1 - smooth(0.24, 0.38, b));
+    kneel = smooth(0.24, 0.38, b) * (1 - smooth(0.86, 1, b));
+    down = smooth(0.38, 0.54, b) * (1 - smooth(0.68, 0.84, b));
     c.hapTo = 1;
-    if (!c.bowHit && b > 0.5) { c.bowHit = true; if (c.mine) sound.moktak(0.75); }
+    if (!c.bowHit && b > 0.54) { c.bowHit = true; if (c.mine) sound.moktak(0.75); }
     if (b >= 1) { c.bowT = null; c.hapTo = 0; c.onBowDone?.(); }
   }
   c.hap = damp(c.hap, c.hapTo, 8, dt);
 
-  const low = Math.max(c.sit, kneel);
+  const low = Math.max(c.sit * (1 - rise), kneel);
   const hop = Math.abs(Math.sin(c.phase)) * 0.05 * c.walk;
   const cushionY = c.cushion != null ? cushions[c.cushion].h * c.sit : 0;
   c.root.position.set(c.x, heightAt(c.z) + hop + cushionY, c.z);
@@ -784,12 +808,23 @@ function updateMonk(c, dt, t) {
   c.body.rotation.x = 1.32 * down;
   c.body.rotation.z = Math.sin(c.phase) * 0.05 * c.walk;
   c.head.rotation.x = -0.28 * down + 0.08 * c.hap * (1 - down);
-  for (const { a, s } of c.arms) {
+  const hapK = c.hap * (1 - down);
+  for (const { a, s, up, e, fore, w, hand, pose } of c.arms) {
     const swing = Math.sin(c.phase + (s > 0 ? 0 : Math.PI)) * 0.55 * c.walk;
     const lap = c.sit * (1 - c.hap);
-    const rx = swing * (1 - c.hap) - 0.72 * lap - 1.28 * c.hap * (1 - down) - 1.65 * down;
-    const rz = s * (0.2 * (1 - c.hap) * (1 - lap) - 0.5 * lap - 1.07 * c.hap * (1 - down) + 0.05 * down);
-    a.rotation.set(rx, 0, rz);
+    eulerArm.set(swing * (1 - c.hap) - 0.72 * lap - 1.65 * down, 0, s * (0.2 * (1 - c.hap) * (1 - lap) - 0.5 * lap + 0.05 * down));
+    qRest.setFromEuler(eulerArm);
+    a.quaternion.slerpQuaternions(qRest, pose.upper, hapK);
+    e.quaternion.slerpQuaternions(qOne, pose.elbow, hapK);
+    w.quaternion.slerpQuaternions(qOne, pose.wrist, hapK);
+    // 합장할 때와 절할 때는 팔이 길게 뻗는다
+    const lenU = 1 + (pose.lenU - 1) * hapK + 0.25 * down, lenF = 1 + (pose.lenF - 1) * hapK + 0.25 * down;
+    up.scale.y = lenU; up.position.y = -ARM_UP / 2 * lenU;
+    e.position.y = -ARM_UP * lenU;
+    fore.scale.y = lenF; fore.position.y = -ARM_FORE / 2 * lenF;
+    w.position.y = -ARM_FORE * lenF;
+    hand.scale.set(1 - 0.22 * hapK, 1 + 1.5 * hapK, 1 + 0.35 * hapK);
+    hand.position.y = 0.09 * hapK;
   }
   for (const { f, s } of c.feet) {
     f.position.z = 0.1 + Math.sin(c.phase + (s > 0 ? Math.PI : 0)) * 0.14 * c.walk + 0.08 * low;
@@ -917,7 +952,7 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap.moved = true;
   if (tap?.moved) {
-    orbit.theta -= dx * 0.006;
+    orbit.theta -= dx * 0.006; poseOff = true;
     skyGoal = null;
     orbit.phi = clamp(orbit.phi - dy * 0.005, 0.42, mode === 'garden' ? SKY_PHI : 1.5);
   }
@@ -1065,13 +1100,14 @@ function doHap() {
   if (player.target || player.bowT != null) return;
   if (mode === 'temple') player.yawTo = Math.PI;
   if (player.hapTo) { player.hapTo = 0; player.hapUntil = 0; return; }
-  player.hapTo = 1; player.hapUntil = performance.now() / 1000 + 8;
+  player.hapTo = 1; player.hapUntil = performance.now() / 1000 + 8; poseOff = false;
   sound.moktak(0.35);
 }
 function doBow() {
   if (mode !== 'temple') return;
   rollDay();
   if (!vowGoal) pendingVow = null;
+  poseOff = false;
   if (player.target) { freeCushion(player); player.target = null; marker.visible = false; updateSitBtn(); }
   startBow(player);
 }
@@ -1151,12 +1187,12 @@ const MEDITATIONS = [
   { id: 'keshoe', name: '경쇠', desc: '32초에 한 번, 고요히 앉을 때' },
 ];
 const AMBIENTS = [
-  { id: 'wind', name: '산바람과 풍경', desc: '바람 사이로 풍경이 가끔 울립니다' },
-  { id: 'stream', name: '계곡물', desc: '바위 사이로 흐르는 물소리' },
-  { id: 'rain', name: '빗소리', desc: '처마 끝에 내리는 비' },
-  { id: 'forest', name: '새 우는 숲', desc: '멀리서 들리는 새소리' },
-  { id: 'night', name: '풀벌레 밤', desc: '여름밤 풀벌레 소리' },
-  { id: 'off', name: '끄기', desc: '바람과 물소리를 끕니다' },
+  { id: 'wind', name: '산바람과 풍경', short: '산바람', desc: '실제 바람 녹음에 풍경이 가끔 울립니다' },
+  { id: 'stream', name: '계곡물', short: '계곡물', desc: '가까이에서 녹음한 냇물 소리' },
+  { id: 'rain', name: '빗소리', short: '빗소리', desc: '창밖에 내리는 비를 녹음한 소리' },
+  { id: 'forest', name: '새 우는 숲', short: '새소리', desc: '아침 숲에서 녹음한 새소리' },
+  { id: 'night', name: '풀벌레 밤', short: '풀벌레', desc: '밤에 녹음한 풀벌레 소리' },
+  { id: 'off', name: '끄기', short: '끔', desc: '배경음을 끕니다' },
 ];
 if (!AMBIENTS.some((x) => x.id === state.ambient)) state.ambient = 'wind';
 sound.ambId = state.ambient;
@@ -1174,11 +1210,21 @@ function drawTracks(loadingId = null) {
   $('btnChant').setAttribute('aria-pressed', String(!!sound.chantId));
   $('setChant').value = sound.chantId || '';
 }
+let ambLoading = null;
 const drawAmbients = () => {
-  markList('ambList', state.ambient, (id, on) => (on && id !== 'off' ? '재생 중' : ''));
+  markList('ambList', state.ambient, (id, on) => (on && id !== 'off' ? (id === ambLoading ? '불러오는 중…' : '재생 중') : ''));
   $('setAmb').value = state.ambient;
+  $('ambLabel').textContent = `배경음 · ${AMBIENTS.find((x) => x.id === state.ambient)?.short ?? ''}`;
 };
-function pickAmbient(id) { state.ambient = id; save(); sound.setAmbient(id); drawAmbients(); }
+const ambFail = () => toast('배경음을 불러오지 못했습니다. 다시 골라 주세요');
+sound.onAmbError = ambFail;
+function pickAmbient(id) {
+  state.ambient = id; save();
+  ambLoading = sound.ctx ? id : null; drawAmbients();
+  sound.setAmbient(id).catch(() => { if (state.ambient === id) ambFail(); }).finally(() => {
+    if (ambLoading === id) { ambLoading = null; drawAmbients(); }
+  });
+}
 function playTrack(id) {
   if (TRACKS.some((x) => x.id === id)) { state.chantTrack = id; save(); }   // 예불 때는 염불만 튼다
   const run = sound.playChant(id);
@@ -1218,6 +1264,7 @@ function soundTab(which) {
     $(panel).hidden = which !== key;
   }
 }
+$('ambBtn').onclick = () => { drawTracks(); drawAmbients(); soundTab('amb'); openModal('chantModal'); };
 $('tabChant').onclick = () => soundTab('chant');
 $('tabMed').onclick = () => soundTab('med');
 $('tabAmb').onclick = () => soundTab('amb');
@@ -1287,6 +1334,7 @@ function applyMode(next) {
   camSnap = true;
   ['btnBow', 'btnAuto'].forEach((id) => { $(id).hidden = inGarden; });
   ['btnStone', 'btnFeed', 'seasonBtn', 'skyBtn'].forEach((id) => { $(id).hidden = !inGarden; });
+  $('ambBtn').classList.toggle('below', inGarden);
   skyGoal = null; skyBack = null; $('skyLabel').textContent = '하늘 보기';
   leafMesh.visible = !inGarden;
   garden.setActive(inGarden);
@@ -1334,7 +1382,7 @@ $('openSettings').onclick = () => {
   openModal('settingsModal');
 };
 /* 연속 절 고르기 */
-const BOW_SECONDS = 5.15;
+const BOW_SECONDS = BOW_TIME + 0.35;
 const vowTime = (goal) => {
   const min = Math.round((goal * BOW_SECONDS) / 60), h = Math.floor(min / 60), m = min % 60;
   return `약 ${h ? `${h}시간 ` : ''}${m ? `${m}분` : ''}`.trim();
@@ -1498,15 +1546,28 @@ addEventListener('resize', resize); resize();
 
 const camPos = new THREE.Vector3();
 let camFit = 1;
+let poseK = 0, poseOff = false;
+const POSE_TURN = 1.7, POSE_DIST = 4.8;
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 function updateCamera(dt) {
   const snap = camSnap; camSnap = false;
   const groundY = player ? heightAt(player.z) : 0;
   if (player) camTarget.set(snap ? player.x : damp(camTarget.x, player.x, 5, dt), snap ? groundY + 1.15 : damp(camTarget.y, groundY + 1.15, 5, dt), snap ? player.z : damp(camTarget.z, player.z, 5, dt));
   const sinP = Math.sin(orbit.phi);
+  // 합장과 절은 앞모습이라 뒤에서는 손이 가려진다. 그동안 카메라를 옆으로 돌린다
+  const posing = player && !poseOff && !skyBack && !player.target && player.walk < 0.2 && (player.bowT != null || autoBow || player.hapTo === 1);
+  poseK = snap ? 0 : damp(poseK, posing ? 1 : 0, 2, dt);
+  let camTheta = orbit.theta;
+  if (player && poseK > 0.001) {
+    const front = player.yawTo;
+    const side = wrapAngle(orbit.theta - front) >= 0 ? 1 : -1;
+    camTheta = orbit.theta + wrapAngle(front + side * POSE_TURN - orbit.theta) * poseK;
+  }
+  const baseDist = orbit.dist + (Math.min(orbit.dist, POSE_DIST) - orbit.dist) * poseK;
   // 정원에서는 탑이나 나무에 시야가 막히면 카메라를 앞으로 당긴다
   let fit = 1;
-  if (mode === 'garden') {
-    const ox = orbit.dist * sinP * Math.sin(orbit.theta), oz = orbit.dist * sinP * Math.cos(orbit.theta);
+  if (mode === 'garden' || poseK > 0.01) {
+    const ox = baseDist * sinP * Math.sin(camTheta), oz = baseDist * sinP * Math.cos(camTheta);
     scan: for (let k = 3; k <= 12; k++) {
       const s = k / 12, px = camTarget.x + ox * s, pz = camTarget.z + oz * s;
       for (const [cx, cz, R, low] of OBSTACLES) {
@@ -1515,14 +1576,14 @@ function updateCamera(dt) {
     }
   }
   camFit = snap ? fit : damp(camFit, fit, fit < camFit ? 9 : 2.5, dt);
-  const camDist = orbit.dist * camFit;
+  const camDist = baseDist * camFit;
   camPos.set(
-    camTarget.x + camDist * sinP * Math.sin(orbit.theta),
+    camTarget.x + camDist * sinP * Math.sin(camTheta),
     clamp(camTarget.y + camDist * Math.cos(orbit.phi), groundY + 0.5, mode === 'garden' ? 13 : 6.4),
-    camTarget.z + camDist * sinP * Math.cos(orbit.theta)
+    camTarget.z + camDist * sinP * Math.cos(camTheta)
   );
   camera.position.copy(camPos);
-  camera.lookAt(camTarget.x, camTarget.y + 0.75 + Math.max(0, orbit.phi - 1.5) * 3.2, camTarget.z);
+  camera.lookAt(camTarget.x, camTarget.y + 0.75 - 1.1 * poseK + Math.max(0, orbit.phi - 1.5) * 3.2, camTarget.z);
 }
 
 const dummy = new THREE.Object3D();
@@ -1589,7 +1650,7 @@ function enter() {
   sound.start();
   entered = true;
   orbit.theta = 0;
-  $('hud').hidden = false; $('dock').hidden = false; $('modeBtn').hidden = false;
+  $('hud').hidden = false; $('dock').hidden = false; $('modeBtn').hidden = false; $('ambBtn').hidden = false; drawAmbients();
   const gate = $('gate');
   gate.classList.add('leaving'); setTimeout(() => { gate.hidden = true; }, 400);
   sound.bell(0.6);
@@ -1615,4 +1676,4 @@ $('enterBtn').disabled = false;
 $('enterBtn').textContent = '법당에 들어가기';
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
+window.__goyoam = { state, orbit, camera, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };

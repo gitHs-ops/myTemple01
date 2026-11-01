@@ -10,7 +10,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%236366f1'/%3E%3Cpath d='M16 7c3 4 3 7 0 10-3-3-3-6 0-10zM7 15c4 0 7 1 9 5-4 1-7-1-9-5zm18 0c-4 0-7 1-9 5 4 1 7-1 9-5zM9 23h14' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <canvas id="scene" aria-label="법당 3D 화면"></canvas>
@@ -39,6 +39,11 @@
 <button id="skyBtn" class="glass side-chip" type="button" title="하늘을 올려다보기" hidden>
   <svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.9 6.4.7-4.8 4.3 1.4 6.3L12 17l-5.6 3.2 1.4-6.3L3 9.6l6.4-.7z"/></svg>
   <span id="skyLabel">하늘 보기</span>
+</button>
+
+<button id="ambBtn" class="glass side-chip" type="button" title="배경음 고르기" hidden>
+  <svg viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg>
+  <span id="ambLabel">배경음</span>
 </button>
 
 <!-- 하단 도크 -->
@@ -165,6 +170,7 @@
       <li><b>정원</b> 왼쪽 위 버튼으로 오갑니다. 돌탑을 쌓고 잉어에게 먹이를 주며, 연못가 돌에 앉을 수 있습니다.</li>
       <li><b>기록</b> 절, 염주, 돌탑 수는 이 기기에만 저장됩니다.</li>
       <li><b>안내</b> 법당과 정원의 다른 동자승은 실제 접속자가 아닌 연출입니다.</li>
+      <li><b>배경음</b> Wikimedia Commons의 실제 녹음을 잘라 반복합니다. 산바람·새소리: Robert EA Harvey, 풀벌레: Fortunamarco2003 (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>). 계곡물: jackthemurray (CC0). 빗소리: cori (퍼블릭 도메인). 출처는 audio/CREDITS.txt에 있습니다.</li>
       <li><b>불상</b> 3D 스캔 원본: 미니애폴리스 미술관 소장 명나라 불상(CC0). 금빛 질감으로 다시 입혔습니다.</li>
       <li><b>고양이</b> 3D 스캔 원본: <a href="https://sketchfab.com/3d-models/catnana-eceaf20563ce4ab1908119a04a79f3be" target="_blank" rel="noopener">Cat(Nana)</a>, Yu (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>). 바닥을 잘라내고 면 수를 줄였습니다.</li>
     </ul>
@@ -177,6 +183,6 @@
   <p>이 브라우저에서 3D 화면(WebGL)을 쓸 수 없습니다. 다른 브라우저로 접속해 주세요.</p>
 </div>
 
-<script type="module" src="app.js?v=15"></script>
+<script type="module" src="app.js?v=16"></script>
 </body>
 </html>

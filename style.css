@@ -219,6 +219,8 @@ input[type=range] { width: 100%; height: 26px; margin: 0; accent-color: var(--ac
 
 #seasonBtn { top: calc(env(safe-area-inset-top) + 110px); }
 #skyBtn { top: calc(env(safe-area-inset-top) + 158px); }
+#ambBtn { top: calc(env(safe-area-inset-top) + 110px); }
+#ambBtn.below { top: calc(env(safe-area-inset-top) + 206px); }
 .side-chip svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .check-row { display: flex; align-items: center; gap: 10px; min-height: 40px; margin-top: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }

@@ -1,0 +1,27 @@
+배경음 원본은 모두 Wikimedia Commons에서 받았고, 잘라서 고리로 잇고 크기를 맞췄습니다 (tools/render_ambience.py).
+가공한 음원의 라이선스는 원본과 같습니다.
+
+amb_wind.mp3
+원본: Wind sounds 2020-05-10 1625, Robert EA Harvey
+라이선스: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+https://commons.wikimedia.org/wiki/File:Wind_sounds_2020-05-10_1625.mp3
+
+amb_forest.mp3
+원본: Bourne woods Birdsong 2020-05-02 0804, Robert EA Harvey
+라이선스: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+https://commons.wikimedia.org/wiki/File:Bourne_woods_Birdsong_2020-05-02_0804.mp3
+
+amb_night.mp3
+원본: Night original format, Fortunamarco2003
+라이선스: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+https://commons.wikimedia.org/wiki/File:Night_original_format.wav
+
+amb_stream.mp3
+원본: stream-river-water-up-close, jackthemurray
+라이선스: CC0
+https://commons.wikimedia.org/wiki/File:433589_jackthemurray_stream-river-water-up-close.wav
+
+amb_rain.mp3
+원본: Rain against the window, cori
+라이선스: 퍼블릭 도메인
+https://commons.wikimedia.org/wiki/File:Rain_against_the_window.ogg
