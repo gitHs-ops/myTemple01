@@ -4,7 +4,7 @@ import { Sound } from './sound.js?v=10';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=7';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 import { CATHEDRAL, buildCathedral } from './cathedral.js?v=3';
-import { MARY, buildMaryGarden } from './marygarden.js?v=1';
+import { MARY, buildMaryGarden } from './marygarden.js?v=2';
 import { BULDU, buildBuldu } from './buldu.js?v=3';
 
 const $ = (id) => document.getElementById(id);
@@ -21,7 +21,7 @@ const KEY = 'goyoam.v1';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 사생활 모드 등 */ } };
 const state = Object.assign(
-  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, season: 'auto', vows: {}, voiceOn: true, voiceVol: 80, chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
+  { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, candles: 0, season: 'auto', vows: {}, voiceOn: true, voiceVol: 80, chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
   (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })()
 );
 const rollDay = () => { if (state.day !== today()) { state.day = today(); state.bowsToday = 0; save(); updateHud(); } };
@@ -75,14 +75,15 @@ const candles = [-1.15, 1.15].map((x) => {
 });
 
 const skyUniforms = { top: { value: new THREE.Color() }, bottom: { value: new THREE.Color() } };
-scene.add(new THREE.Mesh(
+const skyDome = new THREE.Mesh(
   new THREE.SphereGeometry(400, 24, 16),
   new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false, uniforms: skyUniforms,
     vertexShader: 'varying vec3 p; void main(){ p = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: 'uniform vec3 top; uniform vec3 bottom; varying vec3 p; void main(){ float k = pow(clamp(p.y*1.5+0.06,0.0,1.0),0.65); gl_FragColor = vec4(mix(bottom,top,k),1.0);\n#include <colorspace_fragment>\n}',
   })
-));
+);
+scene.add(skyDome);
 /* 은하수: 기울어진 대원을 따라 안개 같은 띠를 그리고 그 띠에 별을 더 모은다 */
 const MW_N = new THREE.Vector3(0.75, 0.42, -0.5).normalize();
 const MW_U = new THREE.Vector3().crossVectors(MW_N, new THREE.Vector3(0, 1, 0)).normalize();
@@ -211,12 +212,18 @@ function constLabel(text) {
   sp.renderOrder = 5; sp.scale.set((w / 56) * 9.5, 9.5, 1); sp.userData.ratio = w / 56;
   return sp;
 }
+let skyZ = 0;
+function setSkyZ(z) {
+  skyZ = z;
+  [skyDome, milky, stars, constGroup].forEach((o) => { o.position.z = z; });
+}
+const outsideNow = () => mode === 'garden' || mode === 'mary';
 function updateConstellations(dt) {
-  if (constStars) constStars.visible = stars.visible;
-  const on = mode === 'garden' && starUni.op.value > 0.5 && (skyBack || orbit.phi > 1.62);
+  if (constStars) { constStars.visible = stars.visible; constStars.position.z = skyZ; }
+  const on = outsideNow() && starUni.op.value > 0.5 && (skyBack || orbit.phi > 1.62);
   constK = damp(constK, on ? 1 : 0, 3, dt);
   constGroup.visible = constK > 0.01;
-  garden.setFallHidden(constK > 0.3);   // 눈앞의 눈송이와 낙엽이 별을 가리지 않게
+  garden.setFallHidden(constK > 0.3); maryGarden.setFallHidden(constK > 0.3);   // 눈앞의 눈송이와 낙엽이 별을 가리지 않게
   if (!constGroup.visible) return;
   for (const s of constShown) {
     const sel = s === constSel;
@@ -228,7 +235,7 @@ function updateConstellations(dt) {
 // 누른 곳에서 가까운 별자리 이름이나 선을 찾는다 (화면 픽셀 기준)
 function pickConstellation(cx, cy) {
   const r = canvas.getBoundingClientRect(), a = new THREE.Vector3(), b = new THREE.Vector3();
-  const toPx = (v) => { v.project(camera); return v.z < 1 ? [(v.x + 1) / 2 * r.width + r.left, (1 - v.y) / 2 * r.height + r.top] : null; };
+  const toPx = (v) => { v.z += skyZ; v.project(camera); return v.z < 1 ? [(v.x + 1) / 2 * r.width + r.left, (1 - v.y) / 2 * r.height + r.top] : null; };
   let best = null, bestD = 34;
   for (const s of constShown) {
     const l = toPx(a.copy(s.label.position));
@@ -761,6 +768,7 @@ function applySeason() {
   if (LEAVES) leafMesh.instanceColor.needsUpdate = true;
   leafMesh.count = Math.min(LEAVES, c.fallN);
   garden.setSeason(k);
+  maryGarden.setSeason(k, c);
   buildConstellations(k);
   const label = document.getElementById('seasonLabel');
   if (label) label.textContent = c.name;
@@ -1269,7 +1277,7 @@ canvas.addEventListener('pointermove', (e) => {
     if (skyBack) skyEl = clamp(skyEl - dy * 0.004, 0.08, 1.52);
     else {
       skyGoal = null;
-      orbit.phi = clamp(orbit.phi - dy * 0.005, 0.42, mode === 'garden' ? SKY_PHI : 1.5);
+      orbit.phi = clamp(orbit.phi - dy * 0.005, 0.42, outsideNow() ? SKY_PHI : 1.5);
     }
   }
 });
@@ -1284,7 +1292,7 @@ canvas.addEventListener('wheel', (e) => { e.preventDefault(); if (entered) orbit
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function handleTap(cx, cy) {
-  if (mode === 'garden' && constK > 0.5) {
+  if (outsideNow() && constK > 0.5) {
     const s = pickConstellation(cx, cy);
     if (s) { showConstellation(s); return; }
     if (skyBack) { toast('별자리 선이나 이름을 눌러 보세요', 2500); return; }
@@ -1293,6 +1301,7 @@ function handleTap(cx, cy) {
   ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   if (mode === 'garden' && !skyBack && raycaster.intersectObject(bulduHead, true).length) { goToBuldu(); return; }
+  if (mode === 'mary' && !skyBack && raycaster.intersectObject(maryGarden.statue, true).length) { goToBuldu(); return; }
   if (mode === 'cathedral' && raycaster.intersectObject(cathedral.booth, true).length) { goConfess(); return; }
   const hit = raycaster.intersectObjects(cushionGroup.children, false).find((h) => cushions[h.object.userData.cushion].zone === mode);
   if (hit) { goToCushion(hit.object.userData.cushion); return; }
@@ -1326,18 +1335,19 @@ function goToBuldu() {
   stopAuto();
   poseOff = true;
   freeCushion(player); player.cushion = null;
-  const { x, z } = BULDU.stand;
+  const atMary = mode === 'mary';
+  const { x, z } = atMary ? MARY.stand : BULDU.stand;
   setTarget(player, x, z, null, () => {
-    player.yawTo = Math.atan2(BULDU.x - x, BULDU.z - z);
+    player.yawTo = atMary ? Math.PI : Math.atan2(BULDU.x - x, BULDU.z - z);
     bulduBack = { phi: orbit.phi, dist: orbit.dist };
-    skyGoal = { phi: 1.42, dist: 18, theta: BULDU.viewTheta };
+    skyGoal = atMary ? { phi: 1.34, dist: 8.6, theta: 0 } : { phi: 1.42, dist: 18, theta: BULDU.viewTheta };
     atBuldu = true;
     updateSitBtn();
-    toast('청동 불상 앞에 왔습니다. 합장해 보세요', 4000);
+    toast(atMary ? '성모상 앞에 왔습니다. 기도해 보세요' : '청동 불상 앞에 왔습니다. 합장해 보세요', 4000);
   });
   marker.position.set(x, heightAt(z) + 0.03, z); marker.visible = true; marker.scale.setScalar(1);
   updateSitBtn();
-  toast('청동 불상을 찾아갑니다');
+  toast(atMary ? '성모상을 찾아갑니다' : '청동 불상을 찾아갑니다');
 }
 function goToCushion(i) {
   const c = cushions[i];
@@ -1421,12 +1431,12 @@ function toast(msg, ms = 2800) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, ms);
 }
 function updateHud() {
-  const inGarden = mode === 'garden';
-  $('countLabel').textContent = inGarden ? '쌓은 돌' : place === 'cathedral' ? '오늘 기도' : vowGoal ? vowName(vowGoal) : '오늘 절';
-  $('countOf').hidden = inGarden; $('bowBarWrap').hidden = inGarden;
+  const inGarden = mode === 'garden', atMary = mode === 'mary';
+  $('countLabel').textContent = inGarden ? '쌓은 돌' : atMary ? '봉헌한 초' : place === 'cathedral' ? '오늘 기도' : vowGoal ? vowName(vowGoal) : '오늘 절';
+  $('countOf').hidden = inGarden || atMary; $('bowBarWrap').hidden = inGarden || atMary;
   $('stoneReset').hidden = !inGarden || !state.stones;
   $('countOf').textContent = `/ ${(vowGoal ?? 108).toLocaleString()}`;
-  $('bowToday').textContent = inGarden ? state.stones : vowGoal ? (state.vows[vowGoal] || 0).toLocaleString() : state.bowsToday;
+  $('bowToday').textContent = inGarden ? state.stones : atMary ? state.candles : vowGoal ? (state.vows[vowGoal] || 0).toLocaleString() : state.bowsToday;
   const barPct = vowGoal ? ((state.vows[vowGoal] || 0) / vowGoal) * 100 : ((state.bowsToday % 108 || (state.bowsToday ? 108 : 0)) / 108) * 100;
   $('bowBar').style.width = `${Math.min(100, barPct)}%`;
   $('statTotal').textContent = state.bowsTotal.toLocaleString();
@@ -1445,7 +1455,7 @@ function doHap() {
   if (place === 'cathedral') sound.bead(); else sound.moktak(0.35);
 }
 function doBow() {
-  if (mode === 'garden') return;
+  if (outsideNow()) return;
   rollDay();
   if (!vowGoal) pendingVow = null;
   poseOff = false;
@@ -1682,7 +1692,26 @@ $('stoneResetGo').onclick = () => {
     toast('돌을 모두 내려놓았습니다. 처음부터 다시 쌓아 보세요', 3500);
   });
 };
+let offering = false;
+function offerCandle() {
+  const q = MARY.stand;
+  setTarget(player, q.x, q.z, null, () => {
+    player.yawTo = Math.PI;
+    if (offering) return;
+    offering = true;
+    setTimeout(() => {
+      offering = false;
+      if (mode !== 'mary' || player.target) return;
+      state.candles++; save();
+      maryGarden.setCandles(state.candles); updateHud();
+      sound.bead(); toast('촛불을 봉헌했습니다');
+    }, 500);
+  });
+  updateSitBtn();
+  toast('성모상 앞으로 갑니다');
+}
 $('btnStone').onclick = () => {
+  if (mode === 'mary') { offerCandle(); return; }
   if (placing) return;
   if (state.stones >= STONE_FULL) { askStoneReset(true); return; }
   placing = true;
@@ -1701,8 +1730,25 @@ $('btnStone').onclick = () => {
   });
   updateSitBtn();
 };
+function feedDoves() {
+  const F = MARY_FOUNTAIN, a = Math.atan2(player.x - F.x, player.z - F.z);
+  setTarget(player, F.x + Math.sin(a) * 5.5, F.z + Math.cos(a) * 5.5, null, () => {
+    player.yawTo = a + Math.PI;
+    poseOff = false;
+    const tx = F.x + Math.sin(a) * 4.2, tz = F.z + Math.cos(a) * 4.2;
+    player.feedT = 0; player.feedFired = 0;
+    feedTheta = pickFeedTheta(a + Math.PI);
+    feedViewUntil = performance.now() / 1000 + FEED_TIME + 5;
+    player.onToss = (hand, step) => {
+      maryGarden.tossFeed(hand, tx, tz, () => { if (mode === 'mary') sound.bead(); });
+      if (step === 0) toast('비둘기가 모여듭니다');
+    };
+  });
+  updateSitBtn();
+}
 $('btnFeed').onclick = () => {
   if (player.feedT != null) return;
+  if (mode === 'mary') { feedDoves(); return; }
   const a = Math.atan2(player.x - POND.x, player.z - POND.z), R = pondR(a);
   const go = clampToZone(POND.x + Math.sin(a) * (R + 0.75), POND.z + Math.cos(a) * (R + 0.75));
   setTarget(player, go[0], go[1], null, () => {
@@ -1722,6 +1768,8 @@ $('btnFeed').onclick = () => {
 
 /* 탑돌기: 탑을 오른쪽에 두고 손을 모은 채 세 바퀴 돈다 */
 const TOWER = { x: 8.5, z: 19, R: 3.6 }, TOWER_ROUNDS = 3, TOWER_STEPS = 24;
+const MARY_FOUNTAIN = { x: 0, z: MARY.z + 6, R: 5 };
+const tourName = () => (mode === 'mary' ? '묵주 걷기' : '탑돌기');
 let tour = null;
 function stopTour() {
   if (!tour) return;
@@ -1731,7 +1779,7 @@ function stopTour() {
 }
 function tourStep() {
   const a = tour.start - (tour.step / TOWER_STEPS) * Math.PI * 2;
-  const x = TOWER.x + Math.sin(a) * TOWER.R, z = TOWER.z + Math.cos(a) * TOWER.R;
+  const C = tour.c, x = C.x + Math.sin(a) * C.R, z = C.z + Math.cos(a) * C.R;
   setTarget(player, x, z);
   player.freshTarget = tour.step === 0;
   player.hapTo = 1; player.hapUntil = 0;
@@ -1741,7 +1789,7 @@ function towerTick(dt) {
   if (!tour) return;
   if (keys.size || (player.target && player.target !== tour.wp)) { stopTour(); updateSitBtn(); return; }
   if (!pointers.size) {
-    const out = Math.atan2(player.x - TOWER.x, player.z - TOWER.z);
+    const out = Math.atan2(player.x - tour.c.x, player.z - tour.c.z);
     orbit.theta += wrapAngle(out - orbit.theta) * (1 - Math.exp(-1.6 * dt));
   }
   if (player.target) return;
@@ -1749,26 +1797,28 @@ function towerTick(dt) {
   if (tour.step % TOWER_STEPS === 0) {
     const round = tour.step / TOWER_STEPS;
     if (round >= TOWER_ROUNDS) {
+      const C = tour.c, name = tourName();
       stopTour();
-      player.yawTo = Math.atan2(TOWER.x - player.x, TOWER.z - player.z);
+      player.yawTo = mode === 'mary' ? Math.PI : Math.atan2(C.x - player.x, C.z - player.z);
       player.hapTo = 1; player.hapUntil = performance.now() / 1000 + 4; poseOff = false;
-      sound.bell(0.7); toast(`탑돌기 ${TOWER_ROUNDS}바퀴를 마쳤습니다`, 4000);
+      sound.bell(0.7); toast(`${name} ${TOWER_ROUNDS}바퀴를 마쳤습니다`, 4000);
       return;
     }
-    sound.bead(); toast(`탑돌기 ${round}바퀴`);
+    sound.bead(); toast(`${tourName()} ${round}바퀴`);
   }
   tourStep();
 }
 $('btnTower').onclick = () => {
-  if (tour) { stopTour(); player.target = null; player.onArrive = null; updateSitBtn(); toast('탑돌기를 멈췄습니다'); return; }
+  if (tour) { stopTour(); player.target = null; player.onArrive = null; updateSitBtn(); toast(`${tourName()}를 멈췄습니다`); return; }
   if (skyBack) $('skyBtn').click();
   stopAuto();
-  tour = { start: Math.atan2(player.x - TOWER.x, player.z - TOWER.z), step: 0, wp: null };
+  const C = mode === 'mary' ? MARY_FOUNTAIN : TOWER;
+  tour = { c: C, start: Math.atan2(player.x - C.x, player.z - C.z), step: 0, wp: null };
   player.walkSpeed = 0.9;
   $('btnTower').setAttribute('aria-pressed', 'true');
   tourStep();
   updateSitBtn();
-  toast(`탑을 오른쪽에 두고 ${TOWER_ROUNDS}바퀴 돕니다`);
+  toast(mode === 'mary' ? `분수를 오른쪽에 두고 손을 모은 채 ${TOWER_ROUNDS}바퀴 걷습니다` : `탑을 오른쪽에 두고 ${TOWER_ROUNDS}바퀴 돕니다`);
 };
 
 /* 법당 ↔ 정원 */
@@ -1790,7 +1840,7 @@ function applyMode(next) {
   player.yaw = player.yawTo = inGarden ? 0 : Math.PI;
   orbit.theta = inGarden ? Math.PI : 0; orbit.phi = 1.22; orbit.dist = outside ? 9.5 : 8.2;
   camSnap = true;
-  $('btnBow').hidden = inGarden; $('btnAuto').hidden = next !== 'temple'; $('btnConfess').hidden = next !== 'cathedral';
+  $('btnBow').hidden = outside; $('btnAuto').hidden = next !== 'temple'; $('btnConfess').hidden = next !== 'cathedral';
   const church = place === 'cathedral';
   $('btnBowLabel').textContent = place === 'cathedral' ? '무릎 꿇기' : '절하기';
   $('btnHapLabel').textContent = place === 'cathedral' ? '기도' : '합장';
@@ -1800,8 +1850,9 @@ function applyMode(next) {
   cathedral.setActive(next === 'cathedral');
   outdoors.visible = next === 'temple' || inGarden;
   maryGarden.setActive(next === 'mary');
-  ['btnStone', 'btnFeed', 'btnTower', 'seasonBtn', 'skyBtn', 'bulduBtn'].forEach((id) => { $(id).hidden = !inGarden; });
-  $('ambBtn').classList.toggle('below', inGarden);
+  ['btnStone', 'btnFeed', 'btnTower', 'seasonBtn', 'skyBtn', 'bulduBtn'].forEach((id) => { $(id).hidden = !outside; });
+  $('ambBtn').classList.toggle('below', outside);
+  setSkyZ(next === 'mary' ? MARY.z : 0);
   skyGoal = null; skyBack = null; $('skyLabel').textContent = '하늘 보기';
   setStarMode(false, true);
   leafMesh.visible = next === 'temple';
@@ -2185,7 +2236,7 @@ function updateCamera(dt) {
   camera.position.copy(camPos);
   skyLookK = snap ? 0 : damp(skyLookK, skyBack ? 1 : 0, 2.4, dt);
   if (atBuldu && (player.target || keys.size)) { atBuldu = false; skyGoal = bulduBack; }
-  bulduLift = snap ? 0 : damp(bulduLift, atBuldu ? 3.4 : 0, 2.4, dt);   // 큰 불상이 화면에 들어오게 올려다본다
+  bulduLift = snap ? 0 : damp(bulduLift, atBuldu ? (mode === 'mary' ? 1.15 : 3.4) : 0, 2.4, dt);   // 큰 불상이 화면에 들어오게 올려다본다
   const lookY = camTarget.y + 0.75 - 1.1 * poseK + bulduLift + Math.max(0, camPhi - 1.5) * 3.2;
   if (skyLookK > 0.001) {
     const ce = Math.cos(skyEl);   // 카메라에서 하늘 쪽으로 향하는 점으로 시선을 옮긴다
@@ -2210,7 +2261,7 @@ function frame(now) {
   strollerTick(t);
   garden.update(t, dt);
   if (mode === 'cathedral') cathedral.update(t);
-  else if (mode === 'mary') maryGarden.update(t);
+  else if (mode === 'mary') maryGarden.update(t, dt);
   towerTick(dt);
   starUni.time.value = t; starUni.ratio.value = pixelRatio;
   stepStarAnim(dt); updateConstellations(dt);
@@ -2255,6 +2306,14 @@ $('rerollName').onclick = () => { $('nameInput').value = randomName(); };
 function enter(kind = 'temple') {
   const name = $('nameInput').value.trim().slice(0, 10) || randomName();
   if (kind === 'cathedral') {
+    $('btnStoneLabel').textContent = '촛불 봉헌'; $('btnStone').title = '성모상 앞에 촛불 봉헌하기';
+    $('btnStone').querySelector('svg').innerHTML = '<path d="M9 21h6M10 21V11h4v10M12 11V9M12 3c-1.6 2-2 3-2 4a2 2 0 0 0 4 0c0-1-.4-2-2-4z"/>';
+    $('btnFeed').title = '비둘기에게 모이 주기';
+    $('btnFeed').querySelector('svg').innerHTML = '<path d="M3 15c3 3 8 3 11 0l7-7-5 1-2-3c-2 0-4 2-4 4l-7 5zM14 6l-1-2"/>';
+    $('btnTowerLabel').textContent = '묵주 걷기'; $('btnTower').title = '분수를 오른쪽에 두고 세 바퀴 걷기';
+    $('btnTower').querySelector('svg').innerHTML = '<circle cx="12" cy="12" r="8" stroke-dasharray="2 3"/><path d="M12 9v6M10 11h4"/>';
+    $('bulduLabel').textContent = '성모상 찾아가기'; $('bulduBtn').title = '성모상 앞으로 걸어가기';
+    $('bulduBtn').querySelector('svg').innerHTML = '<path d="M12 3a3 3 0 0 1 3 3v3l3 11H6L9 9V6a3 3 0 0 1 3-3z"/>';
     // 수도복 차림으로 바꾸고 이웃을 성당 의자로 옮긴다
     place = kind;
     [0x3a2d26, 0x2e2826, 0x44352a, 0x332b28].forEach((c, i) => M.robes[i].color.set(c));
@@ -2287,7 +2346,8 @@ $('enterCathBtn').onclick = () => enter('cathedral');
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('enterBtn').disabled) enter('temple'); });
 
 gardenSky = garden.setSky;
-cathedralNight = cathedral.setNight;
+cathedralNight = (n) => { cathedral.setNight(n); maryGarden.setNight(n); };
+maryGarden.setCandles(state.candles);
 const bulduHead = buildBuldu(scene, GROUND_Y);
 applyTime();
 applySeason();
@@ -2306,5 +2366,5 @@ $('enterBtn').textContent = '법당에 들어가기';
 $('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };

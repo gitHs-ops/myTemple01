@@ -149,9 +149,9 @@ export function buildMaryGarden({ scene, mesh, std, canvasTex, seatGroup }) {
 
   /* 땅과 길 */
   const grassTex = canvasTex(256, 256, (g, w, h) => {
-    g.fillStyle = '#5e8549'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#e8e8e8'; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 2200; i++) {
-      const v = 90 + rnd() * 60; g.fillStyle = `rgb(${v - 28},${v + 12},${v - 50})`;
+      const v = 190 + rnd() * 65; g.fillStyle = `rgb(${v},${v},${v})`;
       g.fillRect(rnd() * w, rnd() * h, 1.5, 3);
     }
   }, [50, 50]);
@@ -171,6 +171,7 @@ export function buildMaryGarden({ scene, mesh, std, canvasTex, seatGroup }) {
   flat(new THREE.CircleGeometry(5.6, 40), gravel, 0, -7, 0.01);
 
   /* 먼 언덕 */
+  const hillMats = [];
   [[72, 11, 14, 0x5f8560, 2.1], [108, 24, 22, 0x7a9b86, 5.3]].forEach(([R, base, amp, color, seed]) => {
     const N = 72, pos = [], idx = [];
     for (let i = 0; i <= N; i++) {
@@ -181,7 +182,8 @@ export function buildMaryGarden({ scene, mesh, std, canvasTex, seatGroup }) {
     for (let i = 0; i < N; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
-    root.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide })));
+    const hm = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide }); hillMats.push(hm);
+    root.add(new THREE.Mesh(g, hm));
   });
 
   /* 사이프러스와 생울타리 */
@@ -209,9 +211,10 @@ export function buildMaryGarden({ scene, mesh, std, canvasTex, seatGroup }) {
   });
 
   /* 장미 화단 */
+  const bushMat = std(0x34663a, { flatShading: true }), blooms = [];
   const roseBed = (cx, cz, w, d, colors) => {
     const n = Math.round(w * d * 2.4);
-    const bush = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.42, 1), std(0x34663a, { flatShading: true }), n);
+    const bush = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.42, 1), bushMat, n);
     const fl = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.1, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }), n * 5);
     const dm = new THREE.Object3D(), col = new THREE.Color();
     for (let i = 0; i < n; i++) {
@@ -224,7 +227,7 @@ export function buildMaryGarden({ scene, mesh, std, canvasTex, seatGroup }) {
         fl.setMatrixAt(i * 5 + k, dm.matrix); fl.setColorAt(i * 5 + k, col.set(colors[Math.floor(rnd() * colors.length)]));
       }
     }
-    root.add(bush, fl);
+    root.add(bush, fl); blooms.push({ fl, full: n * 5 });
     const wide = w >= d, long = wide ? w : d, R = (wide ? d : w) / 2 + 0.2, parts = Math.max(1, Math.round(long / 2));
     for (let i = 0; i < parts; i++) {
       const k = ((i + 0.5) / parts - 0.5) * long;
@@ -246,7 +249,8 @@ export function buildMaryGarden({ scene, mesh, std, canvasTex, seatGroup }) {
     g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 2;
     for (let i = 0; i < 26; i++) { g.beginPath(); g.arc(rnd() * w, rnd() * h, 6 + rnd() * 16, 0, 2); g.stroke(); }
   }, [2, 2]);
-  const water = mesh(new THREE.CircleGeometry(2.92, 36), new THREE.MeshStandardMaterial({ map: waterTex, roughness: 0.2, metalness: 0.2 }), 0, 0.64, Z(6), root); water.rotation.x = -Math.PI / 2;
+  const water = mesh(new THREE.CircleGeometry(2.92, 36), new THREE.MeshStandardMaterial({ map: waterTex, roughness: 0.2, metalness: 0.2 }), 0, 0.64, Z(6), root);
+  let frozen = false; water.rotation.x = -Math.PI / 2;
   mesh(new THREE.CylinderGeometry(0.34, 0.5, 1.5, 16), stone, 0, 1.2, Z(6), root);
   mesh(new THREE.CylinderGeometry(1.15, 0.5, 0.26, 28), stone, 0, 2, Z(6), root);
   mesh(new THREE.CylinderGeometry(0.16, 0.24, 0.7, 12), stone, 0, 2.45, Z(6), root);
@@ -271,7 +275,7 @@ export function buildMaryGarden({ scene, mesh, std, canvasTex, seatGroup }) {
   /* 동굴 */
   const G = -13;
   const rockMat = std(0x8d8679, { roughness: 1, flatShading: true });
-  const backRock = mesh(new THREE.SphereGeometry(5.6, 24, 18, 0, Math.PI * 2, 0, Math.PI * 0.62), new THREE.MeshStandardMaterial({ color: 0x4a443b, roughness: 1, side: THREE.BackSide }), 0, 0, Z(G + 0.2), root);
+  const backRock = mesh(new THREE.SphereGeometry(5.6, 24, 18, Math.PI, Math.PI, 0, Math.PI * 0.62), new THREE.MeshStandardMaterial({ color: 0x4a443b, roughness: 1, side: THREE.BackSide }), 0, 0, Z(G + 0.2), root);
   backRock.scale.set(1.05, 1.5, 0.8);
   const ROCK = 92;
   const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), rockMat, ROCK);
@@ -328,6 +332,77 @@ export function buildMaryGarden({ scene, mesh, std, canvasTex, seatGroup }) {
     }
   });
 
+  /* 계절이 보이는 잎나무 */
+  const canopyGeo = new THREE.IcosahedronGeometry(1, 1), canopyMats = [0, 1, 2, 3].map(() => std(0x4f8f4a, { flatShading: true, roughness: 0.95 }));
+  const barkMat = std(0x57402d);
+  [[-19, -5], [19, -5], [-20, 5.8], [20, 5.8], [-17, 18], [17, 18], [-10.5, 18.6], [10.5, 18.6]].forEach(([x, dz], i) => {
+    const z = Z(dz), sc = 1 + (i % 3) * 0.14;
+    mesh(new THREE.CylinderGeometry(0.2, 0.32, 3 * sc, 7), barkMat, x, 1.5 * sc, z, root);
+    [[0, 3.6, 0, 1.7], [0.9, 3.1, 0.5, 1.15], [-0.85, 3.2, -0.45, 1.2]].forEach(([ox, oy, oz, r], k) => {
+      const m = mesh(canopyGeo, canopyMats[(i + k) % 4], x + ox * sc, oy * sc, z + oz * sc, root);
+      m.scale.setScalar(r * sc); m.rotation.y = i + k;
+    });
+    colliders.push([x, z, 0.9]);
+  });
+
+  /* 땅에 쌓인 꽃잎과 낙엽 */
+  const SCATTER = 520;
+  const scatter = new THREE.InstancedMesh(new THREE.CircleGeometry(0.085, 6), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide }), SCATTER);
+  const sm = new THREE.Object3D();
+  for (let i = 0; i < SCATTER; i++) {
+    sm.position.set((rnd() - 0.5) * 44, 0.024 + rnd() * 0.012, Z(6 + (rnd() - 0.5) * 34));
+    sm.rotation.set(-Math.PI / 2, 0, rnd() * 6.28); sm.scale.set(0.8 + rnd() * 0.9, 0.55 + rnd() * 0.5, 1); sm.updateMatrix();
+    scatter.setMatrixAt(i, sm.matrix); scatter.setColorAt(i, new THREE.Color(0xffffff));
+  }
+  scatter.frustumCulled = false; scatter.count = 0; root.add(scatter);
+
+  /* 내리는 꽃잎과 눈: 봄과 겨울에만 */
+  const FALL = 170;
+  const fallMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+  const fallMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.13, 0.1), fallMat, FALL);
+  fallMesh.frustumCulled = false; fallMesh.count = 0; root.add(fallMesh);
+  const flakes = [];
+  for (let i = 0; i < FALL; i++) flakes.push({ x: (rnd() - 0.5) * 44, z: 6 + (rnd() - 0.5) * 36, h: rnd() * 15, sp: 0.55 + rnd() * 0.6, ph: rnd() * 6.28 });
+  let fallKind = null, fallHide = false;
+
+  /* 비둘기 */
+  const doveBody = std(0xf1efe9, { roughness: 0.75 }), doveWing = std(0xd6d4cf, { roughness: 0.8 }), doveBeak = std(0xd98a4a), doveEye = std(0x1b1b1f);
+  const doves = [], FX = 0, FZ = Z(6);
+  for (let i = 0; i < 7; i++) {
+    const g = new THREE.Group();
+    const body = mesh(new THREE.SphereGeometry(0.16, 12, 10), doveBody, 0, 0.2, 0, g); body.scale.set(0.85, 0.85, 1.35);
+    const head = new THREE.Group(); head.position.set(0, 0.31, 0.17); g.add(head);
+    mesh(new THREE.SphereGeometry(0.085, 10, 8), doveBody, 0, 0, 0, head);
+    const beak = mesh(new THREE.ConeGeometry(0.022, 0.07, 6), doveBeak, 0, -0.01, 0.1, head); beak.rotation.x = Math.PI / 2;
+    [-1, 1].forEach((k) => mesh(new THREE.SphereGeometry(0.014, 6, 5), doveEye, k * 0.06, 0.02, 0.05, head));
+    [-1, 1].forEach((k) => { const w = mesh(new THREE.SphereGeometry(0.11, 8, 6), doveWing, k * 0.12, 0.21, -0.05, g); w.scale.set(0.35, 0.7, 1.45); });
+    const tail = mesh(new THREE.BoxGeometry(0.13, 0.025, 0.2), doveWing, 0, 0.2, -0.27, g); tail.rotation.x = -0.25;
+    [-1, 1].forEach((k) => mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.08, 4), doveBeak, k * 0.05, 0.04, 0, g));
+    const a = (i / 7) * 6.28 + rnd(), r = 4.4 + rnd() * 1.8;
+    g.position.set(FX + Math.sin(a) * r, 0, FZ + Math.cos(a) * r); g.rotation.y = rnd() * 6.28;
+    root.add(g);
+    doves.push({ g, head, a, r, tx: g.position.x, tz: g.position.z, wait: rnd() * 4, ph: rnd() * 6.28, hop: 0 });
+  }
+  let food = null, foodEaten = 0;
+  const PELLETS = 40;
+  const pelletMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.03, 6, 5), std(0xc9a56a), PELLETS);
+  pelletMesh.frustumCulled = false; pelletMesh.count = 0; root.add(pelletMesh);
+  let pellets = [];
+
+  /* 봉헌한 촛불: 동굴 앞에 둥글게 놓인다 */
+  const CANDLES = 54, candleSpots = [];
+  [[2.5, 13], [3.05, 18], [3.6, 23]].forEach(([r, n]) => {
+    for (let i = 0; i < n; i++) {
+      const a = ((i + 0.5) / n - 0.5) * 2.5;
+      candleSpots.push([Math.sin(a) * r, Z(G) + Math.cos(a) * r]);
+    }
+  });
+  const candleWax = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.04, 0.045, 0.24, 8), waxMat, CANDLES);
+  const candleFlame = new THREE.InstancedMesh(flameGeo, flameMat, CANDLES);
+  candleWax.count = candleFlame.count = 0; candleWax.frustumCulled = candleFlame.frustumCulled = false;
+  root.add(candleWax, candleFlame);
+  const cm = new THREE.Object3D();
+
   root.visible = false;
   seats.forEach((q) => { q.mesh.visible = false; });
 
@@ -337,11 +412,121 @@ export function buildMaryGarden({ scene, mesh, std, canvasTex, seatGroup }) {
       root.visible = on; light.visible = on;
       seats.forEach((q) => { q.mesh.visible = on; });
     },
-    update(t) {
+    setSeason(k, c) {
+      const white = new THREE.Color(0xeef3f6), col = new THREE.Color();
+      ground.material.color.set(c.ground);
+      hillMats.forEach((m, i) => m.color.set(c.hills[i]));
+      const snow = c.snow || 0;
+      leafMat.color.set(0x2c5a38).lerp(white, snow * 0.75);
+      hedgeMat.color.set(0x3d6f3f).lerp(white, snow * 0.75);
+      bushMat.color.set(k === 'autumn' ? 0x5c6b35 : 0x34663a).lerp(white, snow * 0.85);
+      gravel.color.set(k === 'winter' ? 0xeef2f5 : 0xffffff);
+      canopyMats.forEach((m, i) => m.color.set(c.broad[i % c.broad.length]));
+      // 장미는 봄여름에 피고 가을에 줄고 겨울에 진다
+      const share = k === 'winter' ? 0 : k === 'autumn' ? 0.3 : k === 'spring' ? 0.75 : 1;
+      blooms.forEach((b) => { b.fl.count = Math.floor(b.full * share); });
+      // 땅의 꽃잎과 낙엽
+      const pal = k === 'spring' ? ['#f7c9d6', '#fbe0e7', '#ffffff'] : k === 'autumn' ? c.broad : null;
+      scatter.count = !pal ? 0 : k === 'autumn' ? SCATTER : Math.floor(SCATTER * 0.55);
+      if (pal) {
+        for (let i = 0; i < scatter.count; i++) scatter.setColorAt(i, col.set(pal[i % pal.length]));
+        scatter.instanceColor.needsUpdate = true;
+      }
+      // 겨울에는 분수가 얼어 물줄기가 멈춘다
+      frozen = k === 'winter';
+      water.material.color.set(frozen ? 0xe6f2f7 : 0xffffff); water.material.roughness = frozen ? 0.45 : 0.2;
+      jets.forEach((q) => { q.m.visible = !frozen; });
+      fallKind = k === 'winter' ? 'snow' : k === 'spring' ? 'petal' : null;
+      fallMat.color.set(fallKind === 'snow' ? 0xffffff : 0xf9c8d6);
+      fallMesh.count = !fallKind || fallHide ? 0 : FALL;
+    },
+    setFallHidden(on) { fallHide = on; fallMesh.count = !fallKind || on ? 0 : FALL; },
+    setNight(n) {
+      light.intensity = 34 + n * 40;
+      glow.material.opacity = 0.75 + n * 0.25;
+    },
+    setCandles(n) {
+      const shown = Math.min(n, CANDLES);
+      candleWax.count = candleFlame.count = shown;
+      for (let i = 0; i < shown; i++) {
+        const [x, z] = candleSpots[i];
+        cm.position.set(x, 0.14, z); cm.scale.setScalar(1); cm.rotation.set(0, 0, 0); cm.updateMatrix(); candleWax.setMatrixAt(i, cm.matrix);
+        cm.position.y = 0.34; cm.updateMatrix(); candleFlame.setMatrixAt(i, cm.matrix);
+      }
+      candleWax.instanceMatrix.needsUpdate = candleFlame.instanceMatrix.needsUpdate = true;
+    },
+    tossFeed(from, x, z, onLand) {
+      food = { x, z, until: performance.now() / 1000 + 12 };
+      for (let k = 0; k < 8; k++) {
+        const ang = Math.random() * 6.283, rad = Math.sqrt(Math.random()) * 0.7;
+        pellets.push({ sx: from.x, sy: from.y, sz: from.z, x: x + Math.sin(ang) * rad, z: z + Math.cos(ang) * rad, k: 0, dur: 0.5 + Math.random() * 0.16, onLand: k === 0 ? onLand : null });
+      }
+      if (pellets.length > PELLETS) pellets = pellets.slice(-PELLETS);
+    },
+    info: () => ({ fallCount: fallMesh.count, fallKind, scatter: scatter.count, frozen, bloom: blooms[0].fl.count, candles: candleWax.count, eaten: foodEaten, doves: food ? doves.filter((d) => Math.hypot(d.g.position.x - food.x, d.g.position.z - food.z) < 1.3).length : 0, food: !!food }),
+    update(t, dt = 0.016) {
+      // 비둘기
+      const now = performance.now() / 1000;
+      if (food && (now > food.until || !pellets.length && now > food.until - 9)) food = null;
+      for (const d of doves) {
+        const dx = d.tx - d.g.position.x, dz = d.tz - d.g.position.z, dist = Math.hypot(dx, dz);
+        if (food && Math.hypot(d.tx - food.x, d.tz - food.z) > 0.9) {
+          const a = Math.random() * 6.283, r = 0.25 + Math.random() * 0.6;
+          d.tx = food.x + Math.sin(a) * r; d.tz = food.z + Math.cos(a) * r; d.wait = 0;
+        }
+        const sp = food ? 1.9 : 0.55;
+        if (dist > 0.06 && d.wait <= 0) {
+          d.g.position.x += (dx / dist) * Math.min(dist, sp * dt);
+          d.g.position.z += (dz / dist) * Math.min(dist, sp * dt);
+          d.hop += dt * (food ? 15 : 9);
+          d.g.position.y = Math.abs(Math.sin(d.hop)) * 0.035;
+          let dy = Math.atan2(dx, dz) - d.g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+          d.g.rotation.y += dy * Math.min(1, dt * 8);
+          d.head.rotation.x = 0.1 * Math.sin(d.hop * 0.5);
+        } else {
+          d.g.position.y = 0;
+          d.wait -= dt;
+          const peck = food ? 0.5 + 0.5 * Math.sin(t * 8 + d.ph) : Math.max(0, Math.sin(t * 1.1 + d.ph) * 2 - 1);
+          d.head.rotation.x = peck * 0.95; d.head.position.y = 0.31 - peck * 0.13;
+          if (!food && d.wait <= 0) {
+            d.a += (Math.random() - 0.5) * 1.1; d.r = Math.max(4.1, Math.min(6.3, d.r + (Math.random() - 0.5) * 1.2));
+            d.tx = FX + Math.sin(d.a) * d.r; d.tz = FZ + Math.cos(d.a) * d.r; d.wait = 1.5 + Math.random() * 5;
+          }
+        }
+      }
+      // 모이
+      for (let i = pellets.length - 1; i >= 0; i--) {
+        const q = pellets[i];
+        if (q.k < 1) {
+          q.k = Math.min(1, q.k + dt / q.dur);
+          if (q.k >= 1) { q.onLand?.(); q.landT = now; }
+        } else if (doves.some((d) => Math.hypot(d.g.position.x - q.x, d.g.position.z - q.z) < 0.34) && now - q.landT > 0.7) {
+          pellets.splice(i, 1); foodEaten++;
+        } else if (now - q.landT > 14) pellets.splice(i, 1);
+      }
+      pelletMesh.count = pellets.length;
+      pellets.forEach((q, i) => {
+        const y = q.k < 1 ? q.sy * (1 - q.k) + 0.04 * q.k + Math.sin(q.k * Math.PI) * 0.8 : 0.04;
+        cm.position.set(q.sx + (q.x - q.sx) * q.k, y, q.sz + (q.z - q.sz) * q.k); cm.scale.setScalar(1); cm.rotation.set(0, 0, 0); cm.updateMatrix();
+        pelletMesh.setMatrixAt(i, cm.matrix);
+      });
+      pelletMesh.instanceMatrix.needsUpdate = true;
+      // 내리는 꽃잎과 눈
+      if (fallMesh.count) {
+        const sn = fallKind === 'snow';
+        flakes.forEach((f, i) => {
+          const h = 15 - ((f.h + t * f.sp * (sn ? 1 : 0.8)) % 15);
+          cm.position.set(f.x + Math.sin(t * 0.6 + f.ph) * 0.8, h, Z(f.z) + Math.cos(t * 0.5 + f.ph) * 0.5);
+          cm.rotation.set(t * 1.1 + f.ph, t * 0.8 + f.ph, 0); cm.scale.setScalar(sn ? 0.7 : 1); cm.updateMatrix();
+          fallMesh.setMatrixAt(i, cm.matrix);
+        });
+        fallMesh.instanceMatrix.needsUpdate = true;
+      }
       for (const { f, ph } of flames) {
         const q = 1 + Math.sin(t * 9 + ph) * 0.1 + Math.sin(t * 17 + ph * 2) * 0.05;
         f.scale.set(2 - q, q, 2 - q);
       }
+      if (frozen) return;
       for (const { m, a, ph } of jets) {
         const k = (t * 0.55 + ph) % 1;
         m.position.set(Math.sin(a) * 1.05 * k, 2.8 + 0.5 * Math.sin(k * Math.PI) - 2.1 * k * k, Z(6) + Math.cos(a) * 1.05 * k);
