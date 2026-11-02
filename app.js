@@ -25,6 +25,7 @@ const state = Object.assign(
   { name: '', day: today(), bowsToday: 0, bowsTotal: 0, beads: 0, rounds: 0, stones: 0, candles: 0, season: 'auto', vows: {}, voiceOn: true, voiceVol: 80, chantTrack: 'yeombul', ambient: 'wind', npc: 11, vol: { wind: 55, chant: 60, perc: 70 } },
   (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })()
 );
+if (state.vows[1000]) { state.vows[3000] = (state.vows[3000] || 0) + state.vows[1000]; delete state.vows[1000]; save(); }   // 천배 진행 기록을 삼천배로 잇는다
 const rollDay = () => { if (state.day !== today()) { state.day = today(); state.bowsToday = 0; save(); updateHud(); } };
 
 const ADJ = ['맑은', '고요한', '가벼운', '푸른', '따뜻한', '잔잔한', '작은', '늦은', '포근한', '은은한', '너른', '새벽'];
@@ -1412,7 +1413,7 @@ addEventListener('blur', () => keys.clear());
 /* ───────── 행동·HUD ───────── */
 let autoBow = false, toastTimer;
 let vowGoal = null, pendingVow = null, wakeLock = null;
-const VOWS = [{ goal: 108, name: '108배' }, { goal: 1000, name: '천배' }, { goal: 10000, name: '만배' }];
+const VOWS = [{ goal: 108, name: '108배' }, { goal: 3000, name: '삼천배' }, { goal: 10000, name: '만배' }];
 const vowName = (g) => VOWS.find((v) => v.goal === g)?.name ?? `${g}배`;
 
 /* 횟수 읽기: 숫자를 한글로 풀어 어느 음성이든 "백팔 배"로 읽게 한다 */
