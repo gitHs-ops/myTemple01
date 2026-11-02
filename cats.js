@@ -185,6 +185,105 @@ function buildCat(coat, { mesh, std, canvasTex }) {
   return { root, body, head, legs, tail };
 }
 
+/* 고양이 길찾기: 정원을 격자로 나눠 물체가 있는 칸을 막고, 그 사이로 갈 수 있는 길을 찾는다 */
+const CELL = 0.5;
+const segNear = (a, b, x, z) => {
+  const ux = b[0] - a[0], uz = b[1] - a[1], k = Math.max(0, Math.min(1, ((x - a[0]) * ux + (z - a[1]) * uz) / (ux * ux + uz * uz || 1)));
+  return Math.hypot(a[0] + ux * k - x, a[1] + uz * k - z);
+};
+export class CatNav {
+  constructor(b, blocked, seed, isEdge) {
+    this.b = b;
+    this.nx = Math.ceil((b.xMax - b.xMin) / CELL); this.nz = Math.ceil((b.zMax - b.zMin) / CELL);
+    const n = this.nx * this.nz;
+    this.open = new Uint8Array(n); this.reach = new Uint8Array(n); this.from = new Int32Array(n);
+    for (let i = 0; i < n; i++) { const [x, z] = this.center(i); this.open[i] = blocked(x, z) ? 0 : 1; }
+    // 정원 안쪽과 이어진 칸만 쓴다. 울타리로 막힌 곳에는 들어가지 않는다
+    const s0 = this.nearestOpen(seed[0], seed[1]);
+    const stack = s0 < 0 ? [] : [s0];
+    if (s0 >= 0) this.reach[s0] = 1;
+    while (stack.length) {
+      const i = stack.pop();
+      for (const j of this.neighbors(i)) if (!this.reach[j]) { this.reach[j] = 1; stack.push(j); }
+    }
+    this.cells = []; this.edges = []; this.roomy = [];
+    for (let i = 0; i < n; i++) {
+      if (!this.reach[i]) continue;
+      const [x, z] = this.center(i);
+      this.cells.push(i);
+      if (isEdge(x, z)) this.edges.push(i);
+      else if (this.neighbors(i).length === 8) this.roomy.push(i);
+    }
+  }
+  center(i) { const iz = Math.floor(i / this.nx), ix = i - iz * this.nx; return [this.b.xMin + (ix + 0.5) * CELL, this.b.zMin + (iz + 0.5) * CELL]; }
+  index(x, z) {
+    const ix = Math.floor((x - this.b.xMin) / CELL), iz = Math.floor((z - this.b.zMin) / CELL);
+    return ix < 0 || iz < 0 || ix >= this.nx || iz >= this.nz ? -1 : iz * this.nx + ix;
+  }
+  // 대각선은 양옆이 모두 뚫렸을 때만 지난다
+  neighbors(i) {
+    const out = [], { nx, nz, open } = this, iz = Math.floor(i / nx), ix = i - iz * nx;
+    const ok = (a, c) => a >= 0 && c >= 0 && a < nx && c < nz && open[c * nx + a];
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (ok(ix + dx, iz + dz)) out.push((iz + dz) * nx + ix + dx);
+    for (const [dx, dz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) if (ok(ix + dx, iz + dz) && ok(ix + dx, iz) && ok(ix, iz + dz)) out.push((iz + dz) * nx + ix + dx);
+    return out;
+  }
+  nearestOpen(x, z) {
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < this.open.length; i++) {
+      if (!this.open[i]) continue;
+      const [cx, cz] = this.center(i), d = (cx - x) ** 2 + (cz - z) ** 2;
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+  }
+  free(x, z) { const i = this.index(x, z); return i >= 0 && this.reach[i] === 1; }
+  // 가까운 갈 수 있는 칸. 없으면 -1
+  snap(x, z, within = 3) {
+    if (this.free(x, z)) return this.index(x, z);
+    let best = -1, bd = within * within;
+    for (const i of this.cells) {
+      const [cx, cz] = this.center(i), d = (cx - x) ** 2 + (cz - z) ** 2;
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+  }
+  sees(a, b) {
+    const d = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.ceil(d / 0.2);
+    for (let k = 1; k < n; k++) if (!this.free(a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n)) return false;
+    return true;
+  }
+  pick(list) { return list.length ? this.center(list[Math.floor(Math.random() * list.length)]) : null; }
+  // 길찾기: 칸을 따라 찾은 뒤, 직선으로 이어지는 곳은 줄여 자연스럽게 걷게 한다
+  path(a, b, around = []) {
+    const s = this.snap(a[0], a[1]), g = this.snap(b[0], b[1]);
+    if (s < 0 || g < 0) return null;
+    const { from } = this;
+    from.fill(-1); from[s] = s;
+    const q = [s];
+    for (let h = 0; h < q.length && from[g] < 0; h++) {
+      for (const j of this.neighbors(q[h])) {
+        if (from[j] >= 0 || !this.reach[j]) continue;
+        if (around.length) { const [cx, cz] = this.center(j); if (around.some(([ox, oz]) => Math.hypot(cx - ox, cz - oz) < 1.3)) continue; }
+        from[j] = q[h]; q.push(j);
+      }
+    }
+    if (from[g] < 0) return null;
+    const raw = [];
+    for (let i = g; ; i = from[i]) { raw.push(this.center(i)); if (i === s) break; }
+    raw.reverse();
+    const out = [raw[0]];
+    let k = 0;
+    const clear = (u, v) => this.sees(u, v) && (!around.length || !around.some(([ox, oz]) => segNear(u, v, ox, oz) < 1.3));
+    while (k < raw.length - 1) {
+      let m = raw.length - 1;
+      while (m > k + 1 && !clear(raw[k], raw[m])) m--;
+      out.push(raw[m]); k = m;
+    }
+    return out;
+  }
+}
+
 // 고양이 밥그릇
 export function makeDish({ mesh, std }, scene) {
   const g = new THREE.Group();
@@ -210,15 +309,17 @@ export class Cat {
   }
 
   hide(wait) {
-    this.route = null; this.root.visible = false; this.wait = wait; this.pause = 0;
+    this.route = null; this.root.visible = false; this.wait = wait; this.pause = 0; this.fadeOut = false;
     this.food = null; this.eating = false; this.eatTo = 0; this.eatK = 0;
   }
 
   // 밥그릇으로 불러온다. 멀리 있거나 숨어 있으면 근처에서 나타난다
-  callFood(food, near) {
-    const far = !this.route || Math.hypot(this.x - food.x, this.z - food.z) > 11;
+  callFood(food, near, nav) {
+    const far = !this.route || Math.hypot(this.x - food.x, this.z - food.z) > 11 || !nav.free(this.x, this.z);
     if (far) { this.x = near[0]; this.z = near[1]; this.scale = 0; this.yaw = Math.atan2(food.x - this.x, food.z - this.z); }
-    this.route = [[this.x, this.z], [food.x, food.z]]; this.i = 1;
+    const way = nav.path([this.x, this.z], [food.x, food.z]);
+    this.route = way && way.length > 1 ? [[this.x, this.z], ...way.slice(1, -1), [food.x, food.z]] : [[this.x, this.z], [food.x, food.z]];
+    this.i = 1; this.retries = 0; this.fadeOut = false;
     this.food = food; this.eating = false; this.eatTo = 0;
     this.pause = 0; this.sitTo = 0; this.bestD = Infinity; this.bestAt = this.clock || 0; this.trips++;
     this.root.visible = true;
@@ -232,12 +333,21 @@ export class Cat {
       this.wait -= dt;
       if (this.wait > 0) return;
       const r = env.route();
+      if (!r) { this.wait = 10; return; }
       this.route = r.points; this.i = 1;
       this.x = r.points[0][0]; this.z = r.points[0][1];
       this.yaw = Math.atan2(r.points[1][0] - this.x, r.points[1][1] - this.z);
-      this.pause = 0; this.sitTo = 0; this.bestD = Infinity; this.bestAt = t; this.scale = 0; this.trips++;
+      this.pause = 0; this.sitTo = 0; this.bestD = Infinity; this.bestAt = t; this.tripAt = t; this.scale = 0; this.trips++; this.retries = 0;
       this.root.visible = true;
     }
+    // 길이 끝내 막혔거나 너무 오래 헤매면 작아지며 조용히 사라진다
+    if (this.fadeOut) {
+      this.scale -= dt / 0.6;
+      if (this.scale <= 0) { this.hide(env.nextWait()); return; }
+      this.root.scale.setScalar(0.88 * this.scale);
+      return;
+    }
+    if (!this.food && t - this.tripAt > 300) { this.fades = (this.fades || 0) + 1; this.fadeOut = true; return; }
     const [wx, wz] = this.route[this.i], last = this.i === this.route.length - 1;
     const dx = wx - this.x, dz = wz - this.z, d = Math.hypot(dx, dz);
     let moving = 0;
@@ -246,7 +356,9 @@ export class Cat {
       this.yaw += wrap(Math.atan2(this.food.dx - this.x, this.food.dz - this.z) - this.yaw) * (1 - Math.exp(-6 * dt));
       if (t > this.food.until) {
         this.eating = false; this.food = null; this.eatTo = 0;
-        this.route = [[this.x, this.z], env.exit()]; this.i = 1; this.bestD = Infinity; this.bestAt = t;
+        const out = env.nav().path([this.x, this.z], env.exit());
+        if (!out || out.length < 2) { this.hide(env.nextWait()); return; }
+        this.route = out; this.i = 1; this.retries = 0; this.tripAt = t; this.bestD = Infinity; this.bestAt = t;
       }
     } else if (this.eatK > 0.1) {
       // 고개를 드는 중
@@ -257,47 +369,52 @@ export class Cat {
       if (this.pause <= 0) this.sitTo = 0;
     } else if (this.sitK > 0.1) {
       // 일어나는 중
-    } else if (d < (running ? 0.22 : 0.5)) {
-      if (running) { this.eating = true; this.eatTo = 1; this.food.until = t + this.food.eat; }
+    } else if (d < (running && last ? 0.22 : 0.4)) {
+      if (running && last) { this.eating = true; this.eatTo = 1; this.food.until = t + this.food.eat; }
       else if (last) { this.hide(env.nextWait()); return; }
       else {
-      this.i++; this.bestD = Infinity; this.bestAt = t;
-      if (Math.random() < 0.5) {
+      const stop = this.route[this.i][2];
+      this.i++; this.bestD = Infinity; this.bestAt = t; this.retries = 0;
+      if (stop && Math.random() < 0.5) {
         this.pause = 1.5 + Math.random() * 5;
         this.sitTo = this.pause > 2.5 ? 1 : 0;
         this.lookAt = (Math.random() - 0.5) * 1.6;
       }
       }
     } else {
-      // 목적지로 가면서 물체와 사람을 피한다
+      // 길을 따라가며 사람과 다른 고양이는 그때그때 비켜 간다
       let vx = dx / d, vz = dz / d;
       const side = this.i % 2 ? 1 : -1;
       const avoid = (ox, oz, R, gain) => {
         const ax = this.x - ox, az = this.z - oz, D = Math.hypot(ax, az) || 0.001, gap = D - R;
-        if (gap > 1.1) return;
-        const k = (1.1 - Math.max(0, gap)) / 1.1;
+        if (gap > 0.9) return;
+        const k = (0.9 - Math.max(0, gap)) / 0.9;
         vx += (ax / D) * k * gain - (az / D) * k * side * gain;
         vz += (az / D) * k * gain + (ax / D) * k * side * gain;
-        if (gap < 0) { this.x = ox + (ax / D) * R; this.z = oz + (az / D) * R; }
       };
-      for (const [ox, oz, R, low] of env.obstacles) if (!low) avoid(ox, oz, R + 0.15, 1.3);
-      const big = env.big?.(this.x, this.z);
-      if (big) avoid(big[0], big[1], big[2], 1.6);
       if (!running || d > 1.3) for (const p of env.people()) avoid(p.x, p.z, 0.75, 1.3);
+      for (const o of env.cats()) if (o !== this && o.route && !(running && d < 1)) avoid(o.x, o.z, 0.75, 0.9);
       const to = Math.atan2(vx, vz);
       // 그릇 앞에서는 속도를 줄이고 바로 틀어 그 자리를 맴돌지 않는다
       const close = running && d < 1.2;
-      this.yaw += wrap(to - this.yaw) * (1 - Math.exp(-(close ? 16 : 5) * dt));
+      this.yaw += wrap(to - this.yaw) * (1 - Math.exp(-(close ? 16 : 7) * dt));
       const sp = (running ? Math.min(2.3, 0.6 + d * 1.5) : 1.05) * dt;
-      this.x += Math.sin(this.yaw) * sp; this.z += Math.cos(this.yaw) * sp;
+      const mx = Math.sin(this.yaw) * sp, mz = Math.cos(this.yaw) * sp, nav = env.nav();
+      // 막힌 칸으로는 들어가지 않고 옆으로 미끄러진다
+      if (nav.free(this.x + mx, this.z + mz) || !nav.free(this.x, this.z)) { this.x += mx; this.z += mz; }
+      else if (nav.free(this.x + mx, this.z)) this.x += mx;
+      else if (nav.free(this.x, this.z + mz)) this.z += mz;
       moving = 1;
-      if (d < this.bestD - 0.25) { this.bestD = d; this.bestAt = t; }
-      if (t - this.bestAt > (running ? 3.5 : 7)) {
-        // 막혔으면 다음 지점으로, 마지막이면 조용히 사라진다. 밥그릇으로 가던 길이 막히면 그 앞에 다시 나타난다
-        if (running) { if (d > 1.5) { this.x = wx; this.z = wz; this.scale = 0; } this.eating = true; this.eatTo = 1; this.bestAt = t; this.food.until = t + this.food.eat; }
-        else if (last) { this.hide(env.nextWait()); return; }
-        else
-        this.i++; this.bestD = Infinity; this.bestAt = t;
+      if (d < this.bestD - 0.2) { this.bestD = d; this.bestAt = t; }
+      if (t - this.bestAt > (running ? 3.5 : 6)) {
+        // 사람에게 막혔으면 길을 다시 찾는다. 밥그릇으로 가던 길이 막히면 그 앞에 다시 나타난다
+        const goal = this.route[this.route.length - 1];
+        const around = [...env.people().map((p) => [p.x, p.z]), ...env.cats().filter((o) => o !== this && o.route).map((o) => [o.x, o.z])];
+        const again = !running && this.retries < 3 ? nav.path([this.x, this.z], goal, around) : null;
+        if (running) { if (d > 1.5) { this.x = wx; this.z = wz; this.scale = 0; } this.eating = true; this.eatTo = 1; this.food.until = t + this.food.eat; }
+        else if (again && again.length > 1) { this.route = again; this.i = 1; this.retries++; }
+        else { this.fades = (this.fades || 0) + 1; this.fadeOut = true; return; }
+        this.bestD = Infinity; this.bestAt = t;
       }
     }
     this.scale = Math.min(1, this.scale + dt / 0.7);

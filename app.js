@@ -5,7 +5,7 @@ import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
-import { Cat, makeDish } from './cats.js?v=4';
+import { Cat, CatNav, makeDish } from './cats.js?v=5';
 import { BULDU, buildBuldu } from './buldu.js?v=5';
 
 const $ = (id) => document.getElementById(id);
@@ -2128,12 +2128,6 @@ const strays = [new Cat(2, CAT_KIT, 3 + Math.random() * 6), new Cat(0, CAT_KIT, 
 const catDish = makeDish(CAT_KIT, scene);
 let dishUntil = 0;
 const catRand = (a, b) => a + Math.random() * (b - a);
-function catEdge(side) {
-  const b = ZONES[mode];
-  if (side === 0) return [b.xMin - 4, catRand(b.zMin + 3, b.zMax - 3)];
-  if (side === 1) return [b.xMax + 4, catRand(b.zMin + 3, b.zMax - 3)];
-  return [mode === 'mary' ? catRand(-14, 14) : catRand(4, 18), b.zMax + 4];
-}
 const catSpotClear = (x, z, pad, lowToo = false) => {
   const b = ZONES[mode];
   if (x < b.xMin + 0.5 || x > b.xMax - 0.5 || z < b.zMin + 0.5 || z > b.zMax - 0.5) return false;
@@ -2142,6 +2136,7 @@ const catSpotClear = (x, z, pad, lowToo = false) => {
 };
 /* 먹이 주기: 내 옆에 밥그릇을 놓으면 고양이들이 달려와 먹는다 */
 function callCatsToDish() {
+  const nav = catNav();
   // 먹이 줄 때의 카메라로 미리 비춰 보고, 그릇과 고양이가 화면에 가장 잘 들어오는 자리를 고른다
   const now = performance.now() / 1000, vx = -Math.sin(feedTheta), vz = -Math.cos(feedTheta), rx = -vz, rz = vx;
   const gy = heightAt(player.z), reach = FEED_DIST * viewFit(player.x, player.z, feedTheta, FEED_DIST * Math.sin(FEED_PHI));
@@ -2154,7 +2149,7 @@ function callCatsToDish() {
   let dx = player.x + vx * 1.8, dz = player.z + vz * 1.8, best = -9;
   for (let side = -3.2; side <= 3.2; side += 0.4) for (let on = -3.2; on <= 3.2; on += 0.4) {
     const x = player.x + rx * side + vx * on, z = player.z + rz * side + vz * on;
-    if (Math.hypot(x - player.x, z - player.z) < 2.4 || !catSpotClear(x, z, 0.6, true)) continue;   // 고양이 자리가 내 몸과 겹치지 않게 띄운다
+    if (Math.hypot(x - player.x, z - player.z) < 2.4 || !catSpotClear(x, z, 0.6, true) || !nav.free(x, z)) continue;   // 고양이 자리가 내 몸과 겹치지 않게 띄운다
     let score = room(x, z);
     for (const k of [-1, 0, 1]) {
       const a = away + k * spread;
@@ -2173,47 +2168,63 @@ function callCatsToDish() {
   catDish.position.set(dx, heightAt(dz) + 0.005, dz); catDish.visible = true; catDish.scale.setScalar(1);
   dishUntil = now + 4;
   strays.forEach((c, i) => {
-    const a = away + (i - 1) * spread, x = dx + Math.sin(a) * 0.6, z = dz + Math.cos(a) * 0.6;
+    const a = away + (i - 1) * spread;
+    let x = dx + Math.sin(a) * 0.6, z = dz + Math.cos(a) * 0.6;
+    if (!nav.free(x, z)) { const q = nav.snap(x, z, 1.2); if (q >= 0) [x, z] = nav.center(q); }
     let near = [dx + Math.sin(a) * 2, dz + Math.cos(a) * 2];
     for (let k = 0; k < 20; k++) {
       const q = a + catRand(-0.9, 0.9), r = catRand(4.5, 6.5), px = dx + Math.sin(q) * r, pz = dz + Math.cos(q) * r;
-      if (catSpotClear(px, pz, 0.5)) { near = [px, pz]; break; }
+      if (nav.free(px, pz)) { near = [px, pz]; break; }
     }
-    c.callFood({ x, z, dx, dz, eat: 8 + i * 1.2, until: Infinity }, near);
+    c.callFood({ x, z, dx, dz, eat: 8 + i * 1.2, until: Infinity }, near, nav);
   });
+}
+/* 고양이 길: 정원마다 한 번 격자를 만든다. 몸집만큼 물체에서 띄운다 */
+const CAT_PAD = 0.45, catNavs = {};
+function catNav() {
+  if (catNavs[mode]) return catNavs[mode];
+  const b = ZONES[mode], inGarden = mode === 'garden', M2 = 5;
+  const box = { xMin: b.xMin - M2, xMax: b.xMax + M2, zMin: inGarden ? 15 : b.zMin - 1, zMax: b.zMax + M2 };
+  const near = [...OBSTACLES.filter(([x, z, R]) => x > box.xMin - R - 1 && x < box.xMax + R + 1 && z > box.zMin - R - 1 && z < box.zMax + R + 1).map(([x, z, R]) => [x, z, R + CAT_PAD])];
+  if (inGarden) {
+    garden.rimRocks.forEach(([x, z, R]) => near.push([x, z, R + 0.2]));
+    forest.trees.forEach(([x, z]) => near.push([x, z, 0.7]));
+  }
+  const blocked = (x, z) => {
+    for (const [ox, oz, R] of near) if (Math.abs(x - ox) < R && Math.abs(z - oz) < R && Math.hypot(x - ox, z - oz) < R) return true;
+    return inGarden && Math.hypot(x - POND.x, z - POND.z) < pondR(Math.atan2(x - POND.x, z - POND.z)) + 0.35;
+  };
+  const isEdge = (x, z) => x < b.xMin - 3 || x > b.xMax + 3 || z > b.zMax + 3;
+  catNavs[mode] = new CatNav(box, blocked, inGarden ? [0, 30] : [0, MARY.z + 1], isEdge);
+  return catNavs[mode];
 }
 function catRoute() {
   // 가장자리에서 들어와 안쪽을 두어 곳 들렀다가 다른 가장자리로 나간다
-  const atMary = mode === 'mary', b = ZONES[mode], edge = catEdge;
-  const a = Math.floor(Math.random() * 3);
-  const c = (a + 1 + Math.floor(Math.random() * 2)) % 3;
-  const inside = () => {
-    for (let k = 0; k < 24; k++) {
-      const x = catRand(b.xMin + 2, b.xMax - 2), z = catRand(b.zMin + 2, b.zMax - 2);
-      const hit = OBSTACLES.some(([ox, oz, R, low]) => !low && Math.hypot(x - ox, z - oz) < R + 0.7);
-      const pond = !atMary && Math.hypot(x - POND.x, z - POND.z) < pondR(Math.atan2(x - POND.x, z - POND.z)) + 0.9;
-      if (!hit && !pond) return [x, z];
-    }
-    return [0, b.zMax - 4];
-  };
-  const mids = 1 + Math.floor(Math.random() * 3), points = [edge(a)];
-  for (let i = 0; i < mids; i++) points.push(inside());
-  points.push(edge(c));
-  return { points };
+  const nav = catNav();
+  const start = nav.pick(nav.edges);
+  if (!start) return null;
+  let end = null;
+  for (let k = 0; k < 12 && !end; k++) { const q = nav.pick(nav.edges); if (q && Math.hypot(q[0] - start[0], q[1] - start[1]) > 18) end = q; }
+  if (!end) end = nav.pick(nav.edges);
+  const stops = [start];
+  for (let i = 1 + Math.floor(Math.random() * 3); i > 0; i--) { const q = nav.pick(nav.roomy); if (q) stops.push(q); }
+  stops.push(end);
+  const points = [start];
+  for (let i = 1; i < stops.length; i++) {
+    const leg = nav.path(stops[i - 1], stops[i]);
+    if (!leg) continue;
+    leg.slice(1).forEach((q, k) => points.push(k === leg.length - 2 && i < stops.length - 1 ? [q[0], q[1], true] : q));
+  }
+  return points.length > 1 ? { points } : null;
 }
 const catEnv = {
-  get obstacles() { return mode === 'garden' ? [...OBSTACLES, ...garden.rimRocks] : OBSTACLES; }, people,
+  people, nav: catNav, cats: () => strays,
   route: catRoute,
-  exit: () => catEdge(Math.floor(Math.random() * 3)),
+  exit: () => catNav().pick(catNav().edges),
   nextWait: () => catRand(10, 45),
   y: (z) => heightAt(z),
-  big: (x, z) => {
-    if (mode !== 'garden') return null;
-    const a = Math.atan2(x - POND.x, z - POND.z);
-    return [POND.x, POND.z, pondR(a) + 0.35];
-  },
 };
-function catsReset() { catDish.visible = false; dishUntil = 0; strays.forEach((c, i) => c.hide(i === 0 ? catRand(3, 10) : catRand(14, 30) + (i - 1) * 14)); }
+function catsReset() { if (mode === 'garden' || mode === 'mary') catNav(); catDish.visible = false; dishUntil = 0; strays.forEach((c, i) => c.hide(i === 0 ? catRand(3, 10) : catRand(14, 30) + (i - 1) * 14)); }
 function catsTick(dt, t) {
   if (mode !== 'garden' && mode !== 'mary') return;
   strays.forEach((c) => c.update(dt, catEnv));
@@ -2757,5 +2768,5 @@ $('enterBtn').textContent = '법당에 들어가기';
 $('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, talksFor, TALKS, dayNumber, strays, tourMates, forest, catDish, callCatsToDish, get zoomGoal() { return zoomGoal; }, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { state, orbit, camera, talksFor, TALKS, dayNumber, strays, tourMates, forest, catDish, catEnv, catNav, POND, pondR, callCatsToDish, get zoomGoal() { return zoomGoal; }, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };
