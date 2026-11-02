@@ -873,7 +873,7 @@ function makeMonk(name, mine = false) {
     sit: 0, sitTo: 0, hap: 0, hapTo: 0, hapUntil: 0, bowT: null, phase: Math.random() * 6, walk: 0, stuck: 0, pop: 1, onArrive: null,
   };
 }
-const BOW_TIME = 6.4;
+const BOW_TIME = 9;
 const OBSTACLES = [[-4.5, 7.4, 0.8], [4.5, 7.4, 0.8], ...garden.colliders, ...cathedral.colliders, ...maryGarden.colliders];
 const POND_MARGIN = 0.55;
 function pushOut(c, dx, dz, sp) {
