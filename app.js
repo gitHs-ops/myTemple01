@@ -7,7 +7,7 @@ import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
 import { Cat, CatNav, makeDish } from './cats.js?v=5';
 import { BULDU, buildBuldu } from './buldu.js?v=5';
-import { goOnline } from './online.js?v=1';
+import { goOnline } from './online.js?v=2';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -1132,6 +1132,7 @@ function updateMonk(c, dt, t) {
   c.upper.position.y = lift;
   c.body.position.y = -0.2 * low + 0.22 * down + Math.sin(t * 1.4 + c.phase) * 0.006;
   c.label.position.y = c.body.position.y + 1.87 + lift;
+  if (c.bubble) { c.bubble.position.y = c.label.position.y + 0.36; c.bubble.visible = c.mine || c.label.visible; if (t > c.bubbleUntil) dropBubble(c); }
   if (c.mine) c.label.visible = !skyBack;
   c.body.scale.set(1 + 0.1 * low, 1 - 0.05 * low, 1 + 0.1 * low);
   c.body.rotation.x = 1.32 * down + feedLean;
@@ -1207,6 +1208,7 @@ function leaveNpc(n) {
   leavePew(n, q, () => setTarget(n, q.x > 0 ? PEW_AISLE : -PEW_AISLE, front, null, out));
 }
 function disposeNpc(n) {
+  dropBubble(n);
   scene.remove(n.root);
   usedNames.delete(n.name);
   n.root.traverse((o) => { if (o.isSprite) { o.material.map.dispose(); o.material.dispose(); } });
@@ -1254,13 +1256,13 @@ function remoteEnter(id, v) {
   n.x = rand(-2.8, 2.8); n.z = HALLS.temple.door; n.pop = 0.01;
   const free = freeCushions('temple');
   if (free.length) walkToSeat(n, pick(free).i); else setTarget(n, rand(-3, 3), rand(4.5, 7));
-  npcs.push(n); remotes.set(id, n);
+  npcs.push(n); remotes.set(id, n); updateChat();
   toast(`${n.name} 님이 법당에 들어왔습니다`);
   syncNpcCount();
 }
 function remoteGone(id, quiet = false) {
   const n = remotes.get(id); if (!n) return;
-  remotes.delete(id); leaveNpc(n);
+  remotes.delete(id); dropBubble(n); leaveNpc(n); updateChat();
   if (!quiet) toast(`${n.name} 님이 법당을 나갔습니다`);
 }
 function remoteUpdate(id, v) {
@@ -1270,12 +1272,74 @@ function remoteUpdate(id, v) {
   if ((v.bow | 0) > n.bowSeen) { n.bowSeen = v.bow | 0; if (!startBow(n)) n.bowLater = true; }
   if ((v.hap | 0) > n.hapSeen) { n.hapSeen = v.hap | 0; if (n.cushion != null) { n.hapTo = 1; n.hapUntil = performance.now() / 1000 + 8; } }
 }
-const refreshRemotes = () => { for (const [id, v] of peers) remoteUpdate(id, v); };
+const refreshRemotes = () => { for (const [id, v] of peers) remoteUpdate(id, v); updateChat(); };
+/* 채팅: 법당에 함께 있는 실제 접속자끼리. 머리 위 말풍선과 왼쪽 아래 기록으로 보인다 */
+function bubbleSprite(text) {
+  const c = document.createElement('canvas'), g = c.getContext('2d'), font = '500 34px Pretendard, "Malgun Gothic", sans-serif';
+  g.font = font;
+  const lines = []; let cur = '', cut = false;
+  for (const ch of text) {
+    if (g.measureText(cur + ch).width > 420 && cur) { lines.push(cur); cur = ''; if (lines.length === 2) { cut = true; break; } }
+    cur += ch;
+  }
+  if (!cut && cur) lines.push(cur);
+  if (cut) lines[1] = lines[1].slice(0, -1) + '…';
+  const w = Math.ceil(Math.max(...lines.map((l) => g.measureText(l).width))) + 48, h = lines.length * 44 + 30;
+  c.width = w; c.height = h + 14;
+  g.font = font; g.fillStyle = 'rgba(255,255,255,.95)';
+  g.beginPath(); g.roundRect(0, 0, w, h, 22); g.fill();
+  g.beginPath(); g.moveTo(w / 2 - 12, h); g.lineTo(w / 2, h + 14); g.lineTo(w / 2 + 12, h); g.fill();
+  g.fillStyle = '#1e293b'; g.textBaseline = 'middle'; g.textAlign = 'center';
+  lines.forEach((l, i) => g.fillText(l, w / 2, 37 + i * 44));
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, depthTest: false, toneMapped: false }));
+  s.renderOrder = 11; s.center.set(0.5, 0); s.scale.set((w / 68) * 0.27, ((h + 14) / 68) * 0.27, 1);
+  return s;
+}
+function dropBubble(c) { if (!c.bubble) return; c.root.remove(c.bubble); c.bubble.material.map.dispose(); c.bubble.material.dispose(); c.bubble = null; }
+function showBubble(c, text) {
+  dropBubble(c);
+  c.bubble = bubbleSprite(text); c.bubbleUntil = performance.now() / 1000 + Math.min(12, 5 + text.length * 0.12);
+  c.root.add(c.bubble);
+}
+function chatLog(name, text, mine = false) {
+  const li = document.createElement('li'); if (mine) li.className = 'mine';
+  const b = document.createElement('b'); b.textContent = name; li.append(b, document.createTextNode(text));
+  const log = $('chatLog'); log.append(li); while (log.children.length > 30) log.firstChild.remove();
+  log.scrollTop = log.scrollHeight;
+}
+const cleanText = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+function onChat(id, text) {
+  const n = remotes.get(id), t = cleanText(text);
+  if (!n || !t || !inHallNow()) return;   // 법당에 함께 있는 사람의 말만 보인다
+  const now = performance.now() / 1000; if (now - (n.lastSay || 0) < 1) return; n.lastSay = now;
+  showBubble(n, t); chatLog(n.name, t);
+}
+let lastSend = 0;
+function sendChat() {
+  const t = cleanText($('chatInput').value);
+  if (!t || !net) return;
+  const now = performance.now() / 1000;
+  if (now - lastSend < 2) { toast('조금 천천히 말씀해 주세요'); return; }
+  lastSend = now; net.say(t); $('chatInput').value = '';
+  showBubble(player, t); chatLog(player.name, t, true);
+}
+function updateChat() {
+  const on = !!net && inHallNow();
+  $('chat').hidden = !on;
+  $('chatCount').textContent = remotes.size ? `함께 있는 분 ${remotes.size}명` : '지금은 혼자 계십니다';
+  $('chatInput').disabled = !remotes.size;
+  $('chatInput').placeholder = remotes.size ? '법당에 한마디 (60자)' : '다른 분이 들어오면 말할 수 있습니다';
+}
+$('chatForm').onsubmit = (e) => { e.preventDefault(); sendChat(); };
+$('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Escape') e.target.blur(); });
+$('chatFold').onclick = () => { const f = $('chat').classList.toggle('folded'); $('chatFold').setAttribute('aria-expanded', String(!f)); };
 function startOnline() {
   goOnline({
     onUser: (id, v) => { peers.set(id, v); remoteUpdate(id, v); },
     onLeave: (id) => { peers.delete(id); remoteGone(id); },
-  }).then((o) => { net = o; net.set({ name: player.name, mode }); }).catch(() => { /* 연결 실패해도 혼자 머물 수 있다 */ });
+    onChat,
+  }).then((o) => { net = o; net.set({ name: player.name, mode }); updateChat(); }).catch(() => { /* 연결 실패해도 혼자 머물 수 있다 */ });
 }
 
 /* 정원을 거니는 동자승 */

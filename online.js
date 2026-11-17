@@ -3,7 +3,7 @@
 const LIB = 'https://esm.sh/trystero@0.27.0';
 const APP_ID = 'github.com/gitHs-ops/myTemple01';
 
-export async function goOnline({ onUser, onLeave, onError }) {
+export async function goOnline({ onUser, onLeave, onChat, onError }) {
   const { joinRoom } = await import(LIB);
   const room = joinRoom({ appId: APP_ID }, 'hall-v1');
   room.onError?.((e) => onError?.(e));
@@ -13,6 +13,9 @@ export async function goOnline({ onUser, onLeave, onError }) {
     if (removed || !v) onLeave(userId); else onUser(userId, v);
   });
   room.onUserLeave?.(({ userId }) => onLeave(userId));
+  // 채팅: 보낸 순간 연결된 사람에게만 가고, 어디에도 저장하지 않는다
+  const chat = room.makeAction('chat');
+  chat.onMessage((text, { userId }) => { if (typeof text === 'string') onChat?.(userId, text.slice(0, 60)); });
   let mine = { name: '', mode: '', bow: 0, hap: 0 };
   const set = (patch) => { mine = { ...mine, ...patch }; monk.set(mine); };
   addEventListener('pagehide', () => { try { monk.clear(); room.leave(); } catch { /* 닫히는 중 */ } });
@@ -20,5 +23,6 @@ export async function goOnline({ onUser, onLeave, onError }) {
     set,
     bow: () => set({ bow: mine.bow + 1 }),
     hap: () => set({ hap: mine.hap + 1 }),
+    say: (text) => chat.send(text),
   };
 }
