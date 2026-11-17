@@ -7,7 +7,7 @@ import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
 import { Cat, CatNav, makeDish } from './cats.js?v=5';
 import { BULDU, buildBuldu } from './buldu.js?v=5';
-import { goOnline } from './online.js?v=3';
+import { goOnline } from './online.js?v=4';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -1317,32 +1317,35 @@ function onChat(id, text) {
   showBubble(n, t); chatLog(n.name, t);
 }
 let lastSend = 0;
-function sendChat() {
-  const t = cleanText($('chatInput').value);
+function sendChat(raw = $('chatInput').value, spoken = false) {
+  const t = cleanText(raw);
   if (!t || !net) return;
   const now = performance.now() / 1000;
-  if (now - lastSend < 2) { toast('조금 천천히 말씀해 주세요'); return; }
-  lastSend = now; net.say(t); $('chatInput').value = '';
-  showBubble(player, t); chatLog(player.name, t, true);
+  if (now - lastSend < (spoken ? 0.8 : 2)) { if (!spoken) toast('조금 천천히 말씀해 주세요'); else pendingSpoken = t; return; }
+  lastSend = now; net.say(t); if (!spoken) $('chatInput').value = '';
+  showBubble(player, t); chatLog(player.name, spoken ? `🗣 ${t}` : t, true);
 }
+let pendingSpoken = '';
+setInterval(() => { if (pendingSpoken) { const t = pendingSpoken; pendingSpoken = ''; sendChat(t, true); } }, 1000);
 function updateChat() {
-  const on = !!net && inHallNow();
+  const on = !!net && inHallNow(), alone = !remotes.size;
   $('chat').hidden = !on;
   for (const id of voices.keys()) applyVoice(id);
   renderPeople(); updateDuck();
-  $('talkBtn').disabled = !remotes.size;
-  if (!on || !remotes.size) { talkEnd(); if (!on) net?.micOff(); }   // 법당을 나가면 마이크를 닫는다
-  $('chatCount').textContent = remotes.size ? `함께 있는 분 ${remotes.size}명` : '지금은 혼자 계십니다';
-  $('chatInput').disabled = !remotes.size;
-  $('chatInput').placeholder = remotes.size ? '법당에 한마디 (60자)' : '다른 분이 들어오면 말할 수 있습니다';
+  ['talkBtn', 'openMicBtn', 'sttBtn'].forEach((id) => { $(id).disabled = alone; });
+  if (!on || alone) { pttHeld = false; if (openMic) setOpenMic(false, true); if (sttOn) setStt(false, true); applyMic(); }
+  if (!on) net?.micOff();   // 법당을 나가면 마이크를 닫는다
+  $('chatCount').textContent = alone ? '지금은 혼자 계십니다' : `함께 있는 분 ${remotes.size}명`;
+  $('chatInput').disabled = alone;
+  $('chatInput').placeholder = alone ? '다른 분이 들어오면 말할 수 있습니다' : sttOn ? '말씀하시면 글로 바꿔 보냅니다' : '법당에 한마디 (60자)';
 }
 $('chatForm').onsubmit = (e) => { e.preventDefault(); sendChat(); };
 $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Escape') e.target.blur(); });
 
-/* 음성: 누르고 말하기. 동시에 말하는 사람은 최대 6명 */
+/* 음성: 누르고 말하기 · 마이크 켜 두기 · 말을 글로. 목소리를 보내는 사람은 동시에 최대 6명 */
 const TALK_MAX = 6;
 const voices = new Map(), mutedIds = new Set();   // userId → <audio> / 내가 소리를 끈 사람
-let talking = false, talkWant = false;
+let pttHeld = false, openMic = false, sending = false, speakingNow = false, micBusy = false, vad = null;
 function onStream(id, stream) {
   let a = voices.get(id);
   if (!a) { a = new Audio(); a.autoplay = true; a.playsInline = true; voices.set(id, a); }
@@ -1357,19 +1360,78 @@ function setTalkLabel(n, on) {
   updateDuck();
 }
 const updateDuck = () => sound.duck([...remotes.values()].some((n) => n.talking && !mutedIds.has(n.userId)));
-async function talkStart() {
-  if (talking || talkWant || !net || !remotes.size) return;
-  const others = [...peers.values()].filter((v) => v.talk && v.mode === 'temple').length;
-  if (others >= TALK_MAX) { toast(`지금 ${TALK_MAX}분이 말하는 중입니다. 잠시 뒤에 말씀해 주세요`); return; }
-  talkWant = true; $('talkBtn').setAttribute('aria-pressed', 'true');
-  try { await net.talk(true); } catch { talkWant = false; $('talkBtn').setAttribute('aria-pressed', 'false'); toast('마이크를 쓸 수 없습니다. 브라우저에서 마이크를 허락해 주세요'); return; }
-  if (!talkWant) { net.talk(false); return; }   // 마이크를 여는 사이에 손을 뗐다
-  talking = true; setTalkLabel(player, true);
+const slotsBusy = () => [...peers.values()].filter((v) => (v.mic || v.talk) && v.mode === 'temple').length;
+function setSpeaking(on) { if (on === speakingNow) return; speakingNow = on; net?.speaking(on); setTalkLabel(player, on); }
+function syncTalkUi() {
+  $('talkBtn').setAttribute('aria-pressed', String(pttHeld && sending));
+  $('openMicBtn').setAttribute('aria-pressed', String(openMic));
 }
-function talkEnd() {
-  if (!talkWant && !talking) return;
-  talkWant = false; $('talkBtn').setAttribute('aria-pressed', 'false');
-  if (talking) { talking = false; net?.talk(false); setTalkLabel(player, false); }
+// 보내야 하는지(누르는 중 또는 켜 둠)에 맞춰 마이크를 열고 닫는다
+async function applyMic() {
+  const want = (pttHeld || openMic) && !!net && inHallNow() && remotes.size > 0;
+  if (micBusy) return;
+  if (want !== sending) {
+    if (want && slotsBusy() >= TALK_MAX) {
+      toast(`지금 ${TALK_MAX}분이 목소리로 말하는 중입니다. 잠시 뒤에 말씀해 주세요`);
+      pttHeld = false; openMic = false; syncTalkUi(); return;
+    }
+    micBusy = true;
+    try { await net.mic(want); sending = want; }
+    catch { pttHeld = false; openMic = false; toast('마이크를 쓸 수 없습니다. 브라우저에서 마이크를 허락해 주세요'); }
+    micBusy = false;
+    if (((pttHeld || openMic) && remotes.size > 0 && inHallNow()) !== sending) { applyMic(); return; }   // 여는 사이에 바뀌었다
+  }
+  if (sending && openMic) startVad(); else stopVad();
+  setSpeaking(sending && (pttHeld || (openMic && vad?.voiced)));
+  syncTalkUi();
+}
+// 켜 둔 마이크는 실제로 소리가 날 때만 「말하는 중」으로 보인다
+function startVad() {
+  if (vad) return;
+  const st = net?.stream(); if (!st) return;
+  const ctx = new AudioContext(), an = ctx.createAnalyser(); an.fftSize = 512;
+  ctx.createMediaStreamSource(st).connect(an);
+  const buf = new Float32Array(an.fftSize); let last = 0;
+  vad = { ctx, voiced: false };
+  vad.id = setInterval(() => {
+    an.getFloatTimeDomainData(buf);
+    let sum = 0; for (const x of buf) sum += x * x;
+    const now = performance.now(), rms = Math.sqrt(sum / buf.length); vad.max = Math.max(vad.max || 0, rms); if (rms > 0.02) last = now;
+    vad.voiced = now - last < 700;
+    setSpeaking(pttHeld || vad.voiced);
+  }, 100);
+}
+function stopVad() { if (!vad) return; clearInterval(vad.id); vad.ctx.close().catch(() => {}); vad = null; }
+function setOpenMic(on, quiet = false) {
+  if (openMic === on) return;
+  openMic = on; syncTalkUi(); applyMic();
+  if (!quiet) toast(on ? '마이크를 켜 두었습니다. 말하는 동안 🔊가 표시됩니다. 다시 누르면 끕니다' : '마이크를 껐습니다');
+}
+function talkStart() { if (pttHeld || !net || !remotes.size) return; pttHeld = true; applyMic(); }
+function talkEnd() { if (!pttHeld) return; pttHeld = false; applyMic(); }
+// 말을 글로: 브라우저 음성 인식으로 받아 적어 채팅으로 보낸다(목소리는 다른 분께 가지 않는다)
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let stt = null, sttOn = false;
+function setStt(on, quiet = false) {
+  if (on && !SR) { toast('이 브라우저는 말을 글로 바꾸는 기능이 없습니다. Chrome·Edge·Safari에서 쓸 수 있습니다'); return; }
+  if (sttOn === on) return;
+  sttOn = on; $('sttBtn').setAttribute('aria-pressed', String(on));
+  if (on) {
+    stt = new SR(); stt.lang = 'ko-KR'; stt.continuous = true; stt.interimResults = true;
+    stt.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) sendChat(r[0].transcript, true); else interim += r[0].transcript; }
+      $('chatInput').placeholder = interim ? `받아 적는 중: ${interim}` : '말씀하시면 글로 바꿔 보냅니다';
+    };
+    stt.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { toast('말을 글로 바꾸려면 마이크 허락이 필요합니다'); setStt(false, true); } };
+    stt.onend = () => { if (sttOn && stt) try { stt.start(); } catch { /* 이미 시작됨 */ } };   // 조용하면 저절로 끝나므로 다시 시작
+    try { stt.start(); } catch { /* 이미 시작됨 */ }
+    if (!quiet) toast('말씀하시면 글로 바꿔 채팅으로 보냅니다. 다시 누르면 멈춥니다');
+  } else if (stt) {
+    const x = stt; stt = null; x.onend = null; try { x.stop(); } catch { /* 이미 멈춤 */ }
+    if (!quiet) toast('말을 글로 바꾸기를 멈췄습니다');
+  }
+  $('chatInput').placeholder = sttOn ? '말씀하시면 글로 바꿔 보냅니다' : '법당에 한마디 (60자)';
 }
 function renderPeople() {
   const ul = $('chatPeople'); ul.replaceChildren();
@@ -1386,6 +1448,8 @@ const talkBtn = $('talkBtn');
 talkBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); talkBtn.setPointerCapture?.(e.pointerId); talkStart(); });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => talkBtn.addEventListener(ev, talkEnd));
 talkBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+$('openMicBtn').onclick = () => setOpenMic(!openMic);
+$('sttBtn').onclick = () => setStt(!sttOn);
 addEventListener('keydown', (e) => { if (e.code === 'KeyV' && !e.repeat && entered && e.target.tagName !== 'INPUT' && !$('chat').hidden) talkStart(); });
 addEventListener('keyup', (e) => { if (e.code === 'KeyV') talkEnd(); });
 addEventListener('blur', talkEnd);
@@ -2934,5 +2998,5 @@ $('enterBtn').textContent = '법당에 들어가기';
 $('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { get voices() { return voices; }, get remotes() { return remotes; }, state, orbit, camera, talksFor, TALKS, dayNumber, strays, tourMates, forest, catDish, catEnv, catNav, POND, pondR, callCatsToDish, get zoomGoal() { return zoomGoal; }, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { get vad() { return vad && { voiced: vad.voiced, state: vad.ctx.state, max: vad.max }; }, get sending() { return sending; }, get voices() { return voices; }, get openMic() { return openMic; }, get sttOn() { return sttOn; }, get remotes() { return remotes; }, state, orbit, camera, talksFor, TALKS, dayNumber, strays, tourMates, forest, catDish, catEnv, catNav, POND, pondR, callCatsToDish, get zoomGoal() { return zoomGoal; }, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };

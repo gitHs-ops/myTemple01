@@ -10,7 +10,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%236366f1'/%3E%3Cpath d='M16 7c3 4 3 7 0 10-3-3-3-6 0-10zM7 15c4 0 7 1 9 5-4 1-7-1-9-5zm18 0c-4 0-7 1-9 5 4 1 7-1 9-5zM9 23h14' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
 <canvas id="scene" aria-label="법당 3D 화면"></canvas>
@@ -86,6 +86,7 @@
   <ul id="chatPeople" aria-label="함께 있는 분 (누르면 그분 소리 끄기·켜기)"></ul>
   <ul id="chatLog" aria-live="polite"></ul>
   <form id="chatForm" autocomplete="off"><button id="talkBtn" type="button" class="talk" aria-pressed="false" disabled title="누르고 있는 동안 말하기 (V)"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><input id="chatInput" maxlength="60" enterkeyhint="send" disabled placeholder="다른 분이 들어오면 말할 수 있습니다"><button type="submit" title="보내기"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2-6-8-2z"/></svg></button></form>
+  <div id="chatModes"><button id="openMicBtn" type="button" aria-pressed="false" disabled title="마이크를 켜 두고 통화처럼 말하기">🎙 마이크 켜 두기</button><button id="sttBtn" type="button" aria-pressed="false" disabled title="말하면 글로 바꿔 채팅으로 보내기">✍ 말을 글로</button></div>
 </section>
 <div id="toast" class="glass" role="status" hidden></div>
 <div id="fade" aria-hidden="true"></div>
@@ -277,7 +278,7 @@
       <li><b>법문과 말씀</b> 법당의 법문 듣기, 성당의 말씀 듣기에서 고릅니다. 날마다 세 편이 바뀌어 나오고, 다른 편은 아래 버튼으로 볼 수 있습니다. 이 사이트에서 쓴 글을 합성 음성으로 읽으며, 실제 스님과 신부님의 말씀이 아닙니다.</li>
       <li><b>스테인드글라스</b> 샤갈의 색과 분위기를 따라 새로 그린 그림입니다. 샤갈의 실제 작품을 옮긴 것이 아닙니다.</li>
       <li><b>기록</b> 절, 염주, 돌탑 수는 이 기기에만 저장됩니다.</li>
-      <li><b>함께 있는 분</b> 지금 법당에 들어와 있는 실제 접속자는 <b>초록 이름표</b>의 동자승으로 문에서 들어와 방석에 앉고, 그분이 절하거나 합장하면 똑같이 움직입니다. 왼쪽 아래 채팅으로 법당에 함께 있는 분과 이야기할 수 있고, 말은 머리 위 말풍선으로도 보입니다. 마이크 버튼(또는 V 키)을 누르고 있는 동안에는 목소리로 말할 수 있고(동시에 최대 6명), 말하는 분 이름 앞에 🔊가 붙습니다. 채팅창의 이름을 누르면 그분 소리를 끌 수 있습니다. 목소리는 녹음·저장하지 않으며, 법당을 나가면 마이크가 닫힙니다. 주고받는 것은 이름, 절·합장 동작, 채팅 글, 누르고 말하는 동안의 목소리뿐이며 서버 없이 브라우저끼리 직접 연결되고 어디에도 저장되지 않습니다. 흰 이름표의 동자승과 정원의 동자승은 연출이며, 실제 접속자가 들어오면 그만큼 연출 동자승이 나갑니다.</li>
+      <li><b>함께 있는 분</b> 지금 법당에 들어와 있는 실제 접속자는 <b>초록 이름표</b>의 동자승으로 문에서 들어와 방석에 앉고, 그분이 절하거나 합장하면 똑같이 움직입니다. 왼쪽 아래 채팅으로 법당에 함께 있는 분과 이야기할 수 있고, 말은 머리 위 말풍선으로도 보입니다. 목소리로 말하는 방법은 세 가지입니다. ① 마이크 버튼(또는 V 키)을 누르고 있는 동안 말하기 ② 「마이크 켜 두기」로 통화처럼 말하기 ③ 「말을 글로」로 말을 받아 적어 채팅으로 보내기. 목소리를 보내는 분은 동시에 최대 6명이며, 말하는 분 이름 앞에 🔊가 붙습니다. 「말을 글로」는 목소리가 다른 분께 가지 않지만, 받아 적기는 브라우저의 음성 인식 서비스(Chrome은 Google)가 처리하며 Firefox에서는 쓸 수 없습니다. 채팅창의 이름을 누르면 그분 소리를 끌 수 있습니다. 목소리는 녹음·저장하지 않으며, 법당을 나가면 마이크가 닫힙니다. 주고받는 것은 이름, 절·합장 동작, 채팅 글, 누르고 말하는 동안의 목소리뿐이며 서버 없이 브라우저끼리 직접 연결되고 어디에도 저장되지 않습니다. 흰 이름표의 동자승과 정원의 동자승은 연출이며, 실제 접속자가 들어오면 그만큼 연출 동자승이 나갑니다.</li>
       <li><b>별자리</b> 정원의 하늘 보기에서 별 보기를 누르면 밤하늘로 바뀌고, 별자리를 누르면 설명이 나옵니다. 별자리는 실제 좌표로 계절 저녁 9시 무렵의 서울 하늘에 놓았고, 나머지 작은 별과 은하수는 꾸밈입니다.</li>
       <li><b>배경 소리</b> Wikimedia Commons의 실제 녹음을 잘라 반복합니다. 산바람·새소리: Robert EA Harvey, 풀벌레: Fortunamarco2003, 빗소리: Nirmal Dulal (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>). 계곡물: jackthemurray (CC0). 오르간과 성가대 허밍: 이 사이트에서 직접 합성. 법문과 말씀 음성: Supertone Supertonic 3 (OpenRAIL-M)으로 합성. 절 횟수 안내 음성: Supertone Supertonic 3 (OpenRAIL-M)으로 합성. 출처는 audio/CREDITS.txt에 있습니다.</li>
       <li><b>불상</b> 3D 스캔 원본: 미니애폴리스 미술관 소장 명나라 불상(CC0). 금빛 질감으로 다시 입혔고, 정원의 금동 불상도 같은 스캔을 금빛으로 입혔습니다.</li>
@@ -293,6 +294,6 @@
   <p>이 브라우저에서 3D 화면(WebGL)을 쓸 수 없습니다. 다른 브라우저로 접속해 주세요.</p>
 </div>
 
-<script type="module" src="app.js?v=51"></script>
+<script type="module" src="app.js?v=52"></script>
 </body>
 </html>

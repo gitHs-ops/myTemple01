@@ -31,7 +31,7 @@ export async function goOnline({ onUser, onLeave, onChat, onStream, onError }) {
     try { room.removeStream(mic); } catch { /* 이미 끊김 */ }
     mic.getTracks().forEach((t) => t.stop()); mic = null;
   }
-  let mine = { name: '', mode: '', bow: 0, hap: 0, talk: false };
+  let mine = { name: '', mode: '', bow: 0, hap: 0, mic: false, talk: false };   // mic=목소리를 보내는 중(자리 차지), talk=지금 말하는 중
   const set = (patch) => { mine = { ...mine, ...patch }; monk.set(mine); };
   addEventListener('pagehide', () => { try { monk.clear(); room.leave(); } catch { /* 닫히는 중 */ } });
   return {
@@ -39,11 +39,13 @@ export async function goOnline({ onUser, onLeave, onChat, onStream, onError }) {
     bow: () => set({ bow: mine.bow + 1 }),
     hap: () => set({ hap: mine.hap + 1 }),
     say: (text) => chat.send(text),
-    talk: async (on) => {
+    mic: async (on) => {
       if (on) await micOn();
       mic?.getAudioTracks().forEach((t) => { t.enabled = on; });
-      set({ talk: on });
+      set({ mic: on });
     },
-    micOff: () => { if (!mic) return; micOff(); set({ talk: false }); },
+    speaking: (on) => set({ talk: on }),
+    stream: () => mic,
+    micOff: () => { if (!mic) return; micOff(); set({ mic: false, talk: false }); },
   };
 }

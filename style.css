@@ -118,6 +118,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-prim
 #chatForm button.talk { background: rgba(22, 163, 74, .14); color: #15803d; touch-action: none; user-select: none; -webkit-user-select: none; }
 #chatForm button.talk[aria-pressed="true"] { background: #16a34a; color: #fff; box-shadow: 0 0 0 4px rgba(22, 163, 74, .25); animation: talkPulse 1.2s ease-in-out infinite; }
 #chatForm button.talk:disabled { opacity: .45; }
+#chatModes { display: flex; gap: 6px; }
+#chat.folded #chatModes { display: none; }
+#chatModes button { flex: 1; height: 30px; border-radius: 10px; font-size: 12px; font-weight: 600; background: rgba(255, 255, 255, .6); border: 1px solid rgba(148, 163, 184, .35); }
+#chatModes button[aria-pressed="true"] { background: #16a34a; color: #fff; border-color: #16a34a; }
+#chatModes button:disabled { opacity: .45; }
 @keyframes talkPulse { 50% { box-shadow: 0 0 0 8px rgba(22, 163, 74, .12); } }
 #chatInput { flex: 1; min-width: 0; height: 36px; border-radius: 12px; border: 1px solid rgba(148, 163, 184, .45); background: rgba(255, 255, 255, .75); padding: 0 12px; font: inherit; font-size: 14px; }
 #chatInput:disabled { opacity: .6; }
