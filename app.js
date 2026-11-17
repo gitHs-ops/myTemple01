@@ -1,13 +1,13 @@
 import * as THREE from './vendor/three.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.min.js';
-import { Sound } from './sound.js?v=11';
+import { Sound } from './sound.js?v=12';
 import { buildGarden, pondR, POND, GARDEN_BOUNDS, GROUND_Y, CAT } from './garden.js?v=8';
 import { CONSTELLATIONS, SKY_LST, starDir } from './constellations.js?v=1';
 import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
 import { Cat, CatNav, makeDish } from './cats.js?v=5';
 import { BULDU, buildBuldu } from './buldu.js?v=5';
-import { goOnline } from './online.js?v=2';
+import { goOnline } from './online.js?v=3';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -1270,6 +1270,7 @@ function remoteUpdate(id, v) {
   if (!(v.mode === 'temple' && inHallNow())) { remoteGone(id, !inHallNow()); return; }
   if (!n) { remoteEnter(id, v); return; }
   if ((v.bow | 0) > n.bowSeen) { n.bowSeen = v.bow | 0; if (!startBow(n)) n.bowLater = true; }
+  setTalkLabel(n, !!v.talk);
   if ((v.hap | 0) > n.hapSeen) { n.hapSeen = v.hap | 0; if (n.cushion != null) { n.hapTo = 1; n.hapUntil = performance.now() / 1000 + 8; } }
 }
 const refreshRemotes = () => { for (const [id, v] of peers) remoteUpdate(id, v); updateChat(); };
@@ -1327,18 +1328,74 @@ function sendChat() {
 function updateChat() {
   const on = !!net && inHallNow();
   $('chat').hidden = !on;
+  for (const id of voices.keys()) applyVoice(id);
+  renderPeople(); updateDuck();
+  $('talkBtn').disabled = !remotes.size;
+  if (!on || !remotes.size) { talkEnd(); if (!on) net?.micOff(); }   // 법당을 나가면 마이크를 닫는다
   $('chatCount').textContent = remotes.size ? `함께 있는 분 ${remotes.size}명` : '지금은 혼자 계십니다';
   $('chatInput').disabled = !remotes.size;
   $('chatInput').placeholder = remotes.size ? '법당에 한마디 (60자)' : '다른 분이 들어오면 말할 수 있습니다';
 }
 $('chatForm').onsubmit = (e) => { e.preventDefault(); sendChat(); };
 $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Escape') e.target.blur(); });
+
+/* 음성: 누르고 말하기. 동시에 말하는 사람은 최대 6명 */
+const TALK_MAX = 6;
+const voices = new Map(), mutedIds = new Set();   // userId → <audio> / 내가 소리를 끈 사람
+let talking = false, talkWant = false;
+function onStream(id, stream) {
+  let a = voices.get(id);
+  if (!a) { a = new Audio(); a.autoplay = true; a.playsInline = true; voices.set(id, a); }
+  a.srcObject = stream; applyVoice(id); a.play().catch(() => {});
+}
+function applyVoice(id) { const a = voices.get(id); if (a) a.muted = mutedIds.has(id) || !remotes.has(id); }
+function dropVoice(id) { const a = voices.get(id); if (!a) return; a.pause(); a.srcObject = null; voices.delete(id); }
+function setTalkLabel(n, on) {
+  if (n.talking === on) return; n.talking = on;
+  n.root.remove(n.label); n.label.material.map.dispose(); n.label.material.dispose();
+  n.label = nameSprite(on && !mutedIds.has(n.userId) ? `🔊 ${n.name}` : n.name, n.mine, n.real); n.root.add(n.label);
+  updateDuck();
+}
+const updateDuck = () => sound.duck([...remotes.values()].some((n) => n.talking && !mutedIds.has(n.userId)));
+async function talkStart() {
+  if (talking || talkWant || !net || !remotes.size) return;
+  const others = [...peers.values()].filter((v) => v.talk && v.mode === 'temple').length;
+  if (others >= TALK_MAX) { toast(`지금 ${TALK_MAX}분이 말하는 중입니다. 잠시 뒤에 말씀해 주세요`); return; }
+  talkWant = true; $('talkBtn').setAttribute('aria-pressed', 'true');
+  try { await net.talk(true); } catch { talkWant = false; $('talkBtn').setAttribute('aria-pressed', 'false'); toast('마이크를 쓸 수 없습니다. 브라우저에서 마이크를 허락해 주세요'); return; }
+  if (!talkWant) { net.talk(false); return; }   // 마이크를 여는 사이에 손을 뗐다
+  talking = true; setTalkLabel(player, true);
+}
+function talkEnd() {
+  if (!talkWant && !talking) return;
+  talkWant = false; $('talkBtn').setAttribute('aria-pressed', 'false');
+  if (talking) { talking = false; net?.talk(false); setTalkLabel(player, false); }
+}
+function renderPeople() {
+  const ul = $('chatPeople'); ul.replaceChildren();
+  for (const [id, n] of remotes) {
+    const li = document.createElement('li'), b = document.createElement('button');
+    const off = mutedIds.has(id);
+    b.type = 'button'; b.textContent = `${off ? '🔇' : '🔊'} ${n.name}`; b.title = off ? '소리 켜기' : '이분 소리 끄기';
+    b.setAttribute('aria-pressed', String(off));
+    b.onclick = () => { if (mutedIds.has(id)) mutedIds.delete(id); else mutedIds.add(id); applyVoice(id); const t = n.talking; n.talking = !t; setTalkLabel(n, t); renderPeople(); };
+    li.append(b); ul.append(li);
+  }
+}
+const talkBtn = $('talkBtn');
+talkBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); talkBtn.setPointerCapture?.(e.pointerId); talkStart(); });
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => talkBtn.addEventListener(ev, talkEnd));
+talkBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+addEventListener('keydown', (e) => { if (e.code === 'KeyV' && !e.repeat && entered && e.target.tagName !== 'INPUT' && !$('chat').hidden) talkStart(); });
+addEventListener('keyup', (e) => { if (e.code === 'KeyV') talkEnd(); });
+addEventListener('blur', talkEnd);
 $('chatFold').onclick = () => { const f = $('chat').classList.toggle('folded'); $('chatFold').setAttribute('aria-expanded', String(!f)); };
 function startOnline() {
   goOnline({
     onUser: (id, v) => { peers.set(id, v); remoteUpdate(id, v); },
-    onLeave: (id) => { peers.delete(id); remoteGone(id); },
+    onLeave: (id) => { peers.delete(id); remoteGone(id); dropVoice(id); },
     onChat,
+    onStream,
   }).then((o) => { net = o; net.set({ name: player.name, mode }); updateChat(); }).catch(() => { /* 연결 실패해도 혼자 머물 수 있다 */ });
 }
 
@@ -2877,5 +2934,5 @@ $('enterBtn').textContent = '법당에 들어가기';
 $('enterCathBtn').disabled = false;
 
 // 자동 점검용 진입점
-window.__goyoam = { state, orbit, camera, talksFor, TALKS, dayNumber, strays, tourMates, forest, catDish, catEnv, catNav, POND, pondR, callCatsToDish, get zoomGoal() { return zoomGoal; }, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
+window.__goyoam = { get voices() { return voices; }, get remotes() { return remotes; }, state, orbit, camera, talksFor, TALKS, dayNumber, strays, tourMates, forest, catDish, catEnv, catNav, POND, pondR, callCatsToDish, get zoomGoal() { return zoomGoal; }, get talk() { return talk; }, get speaker() { return speaker; }, get skyZ() { return skyZ; }, maryGarden, MARY, goConfess, get inBooth() { return inBooth; }, get hall() { return place; }, get tour() { return tour; }, TOWER, CATHEDRAL, leafCount: () => leafMesh.count, walkTarget: (x, z, cb) => setTarget(player, x, z, null, cb), walkOther: (n, x, z) => setTarget(n, x, z), walkCush: (i) => walkToSeat(player, i), get npcs() { return npcs; }, get strollers() { return strollers; }, OBSTACLES, get cushions() { return cushions; }, get garden() { return garden; }, get player() { return player; }, get buddha() { return scanBuddha; }, get mode() { return mode; }, get season() { return seasonNow; }, BULDU, get bulduHead() { return bulduHead; }, set skyEl(v) { skyEl = v; }, get fallInfo() { return garden.fallInfo(); }, get constK() { return constK; }, get skyHour() { return skyHour; },
   constShown: () => constShown.map((s) => ({ id: s.c.id, name: s.c.name, px: (() => { const v = s.label.position.clone().project(camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight, v.z]; })() })), get poseK() { return poseK; }, korNum, get vowGoal() { return vowGoal; }, get cat() { return catModel; }, catBreath, milky: milkyUni, garden, strollers, npcs, cushions, sound };

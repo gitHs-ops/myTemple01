@@ -16,7 +16,7 @@ export class Sound {
     if (!AC) return;
     const ctx = this.ctx = new AC();
     this.master = ctx.createDynamicsCompressor();
-    this.master.connect(ctx.destination);
+    this.duckG = ctx.createGain(); this.master.connect(this.duckG); this.duckG.connect(ctx.destination);   // 다른 분이 말할 때 배경 소리를 줄인다
     this.analyser = ctx.createAnalyser(); this.master.connect(this.analyser);
 
     this.reverb = ctx.createConvolver();
@@ -40,6 +40,7 @@ export class Sound {
     ctx.resume();
   }
 
+  duck(on) { if (this.ctx) this.duckG.gain.setTargetAtTime(on ? 0.3 : 1, this.ctx.currentTime, 0.25); }
   applyVolumes() {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
