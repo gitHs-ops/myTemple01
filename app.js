@@ -7,6 +7,7 @@ import { CATHEDRAL, buildCathedral } from './cathedral.js?v=4';
 import { MARY, buildMaryGarden } from './marygarden.js?v=2';
 import { Cat, CatNav, makeDish } from './cats.js?v=5';
 import { BULDU, buildBuldu } from './buldu.js?v=5';
+import { goOnline } from './online.js?v=1';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -809,13 +810,13 @@ const M = {
   robes: [std(0x9095a0), std(0x7f8794), std(0xa3a39b), std(0x8a8f86)],
   blob: new THREE.MeshBasicMaterial({ color: 0x20140a, transparent: true, opacity: 0.2, depthWrite: false }),
 };
-function nameSprite(text, mine) {
+function nameSprite(text, mine, real = false) {
   const c = document.createElement('canvas'), g = c.getContext('2d'), font = '600 40px Pretendard, "Malgun Gothic", sans-serif';
   const label = mine ? `나: ${text}` : text;
   g.font = font; const w = Math.ceil(g.measureText(label).width) + 44; c.width = w; c.height = 68;
-  g.font = font; g.fillStyle = mine ? 'rgba(79,70,229,.9)' : 'rgba(255,255,255,.76)';
+  g.font = font; g.fillStyle = mine ? 'rgba(79,70,229,.9)' : real ? 'rgba(22,163,74,.88)' : 'rgba(255,255,255,.76)';
   g.beginPath(); g.roundRect(0, 0, w, 68, 34); g.fill();
-  g.fillStyle = mine ? '#fff' : '#334155'; g.textBaseline = 'middle'; g.textAlign = 'center'; g.fillText(label, w / 2, 36);
+  g.fillStyle = mine || real ? '#fff' : '#334155'; g.textBaseline = 'middle'; g.textAlign = 'center'; g.fillText(label, w / 2, 36);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, depthTest: !mine, toneMapped: false }));
   if (mine) s.renderOrder = 10;
@@ -840,7 +841,7 @@ const HAP_POSE = (() => {
   return out;
 })();
 const qRest = new THREE.Quaternion(), qOne = new THREE.Quaternion(), eulerArm = new THREE.Euler();
-function makeMonk(name, mine = false) {
+function makeMonk(name, mine = false, real = false) {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
   const blob = mesh(G.blob, M.blob, 0, 0.012, 0, root); blob.rotation.x = -Math.PI / 2;
   const robeMat = mine ? M.robes[0] : pick(M.robes);
@@ -866,10 +867,10 @@ function makeMonk(name, mine = false) {
     return { a, s, up, e, fore, w, hand, pose: HAP_POSE[s] };
   });
   const feet = [-1, 1].map((s) => { const f = mesh(G.foot, M.foot, s * 0.17, 0.08, 0.1, root); f.scale.set(1, 0.7, 1.4); return { f, s }; });
-  const label = nameSprite(name, mine); root.add(label);
+  const label = nameSprite(name, mine, real); root.add(label);
   scene.add(root);
   return {
-    name, root, body, robe, upper, head, arms, feet, mine, label, crown,
+    name, root, body, robe, upper, head, arms, feet, mine, real, label, crown,
     x: 0, z: 0, yaw: Math.PI, yawTo: Math.PI, target: null, cushion: null, leaving: false,
     sit: 0, sitTo: 0, hap: 0, hapTo: 0, hapUntil: 0, bowT: null, phase: Math.random() * 6, walk: 0, stuck: 0, pop: 1, onArrive: null,
   };
@@ -993,7 +994,9 @@ function leavePew(c, q, done = null) {
 }
 function startBow(c) {
   if (c.bowT != null || c.target) return false;
-  c.bowT = 0; c.yawTo = Math.PI; c.bowHit = false; return true;
+  c.bowT = 0; c.yawTo = Math.PI; c.bowHit = false;
+  if (c === player && mode === 'temple') net?.bow();
+  return true;
 }
 /* 먹이 주기: 왼손에 그릇을 받치고, 오른손으로 집어 세 번 흩뿌린다 */
 const FEED_TIME = 3.9, FEED_TOSSES = 3, FEED_RELEASE = 0.58;
@@ -1209,18 +1212,20 @@ function disposeNpc(n) {
   n.root.traverse((o) => { if (o.isSprite) { o.material.map.dispose(); o.material.dispose(); } });
   npcs.splice(npcs.indexOf(n), 1);
 }
-const liveNpcs = () => npcs.filter((n) => !n.leaving);
+const liveNpcs = () => npcs.filter((n) => !n.leaving && !n.real);
+const npcWant = () => Math.max(0, state.npc - npcs.filter((n) => n.real && !n.leaving).length);   // 실제 접속자가 들어오면 연출 이웃이 그만큼 나간다
 function syncNpcCount() {
-  const live = liveNpcs();
-  if (live.length < state.npc) addNpc(false);
-  else if (live.length > state.npc) leaveNpc(pick(live));
+  const live = liveNpcs(), want = npcWant();
+  if (live.length < want) addNpc(false);
+  else if (live.length > want) leaveNpc(pick(live));
 }
 function npcTick(t) {
   for (const n of [...npcs]) {
     if (n.gone) { disposeNpc(n); continue; }
     if (n.pop < 1) n.pop = Math.min(1, n.pop + 0.03);
     if (n.leaving) { const door = HALLS[place].door; n.pop = n.z > door - 1.2 ? Math.max(0.02, (door - n.z) / 1.2) : n.pop; }
-    if (n.cushion == null || n.target || n.bowT != null) continue;
+    if (n.real && n.bowLater && n.cushion != null && !n.target && n.bowT == null) { n.bowLater = false; startBow(n); }   // 걷는 중에 받은 절은 앉은 뒤에
+    if (n.real || n.cushion == null || n.target || n.bowT != null) continue;   // 실제 접속자는 그 사람의 동작만 따른다
     if (t > n.nextAct) {
       if (place !== 'cathedral' && Math.random() < 0.72) startBow(n);
       else { n.hapTo = 1; n.hapUntil = t + rand(6, 16); n.nextAct = t + rand(20, 60); }
@@ -1232,9 +1237,45 @@ function communityTick(t) {
   if (t > nextSwap) {
     nextSwap = t + rand(35, 90);
     const live = liveNpcs().filter((n) => n.cushion != null);
-    if (live.length && live.length === state.npc) { leaveNpc(pick(live)); addNpc(false); }
+    if (live.length && live.length === npcWant()) { leaveNpc(pick(live)); addNpc(false); }
   }
   syncNpcCount();
+}
+
+/* 실제 접속자: 법당에 함께 있는 사람을 동자승으로 보여 준다 (online.js) */
+let net = null;
+const peers = new Map(), remotes = new Map();   // userId → 받은 상태 / 법당의 동자승
+const REMOTE_MAX = 24;
+const inHallNow = () => entered && mode === 'temple' && place === 'temple';
+function remoteEnter(id, v) {
+  if (remotes.size >= REMOTE_MAX) return;
+  const n = makeMonk(String(v.name || '동자승').slice(0, 10), false, true);
+  n.userId = id; n.bowSeen = v.bow | 0; n.hapSeen = v.hap | 0; n.nextAct = Infinity;
+  n.x = rand(-2.8, 2.8); n.z = HALLS.temple.door; n.pop = 0.01;
+  const free = freeCushions('temple');
+  if (free.length) walkToSeat(n, pick(free).i); else setTarget(n, rand(-3, 3), rand(4.5, 7));
+  npcs.push(n); remotes.set(id, n);
+  toast(`${n.name} 님이 법당에 들어왔습니다`);
+  syncNpcCount();
+}
+function remoteGone(id, quiet = false) {
+  const n = remotes.get(id); if (!n) return;
+  remotes.delete(id); leaveNpc(n);
+  if (!quiet) toast(`${n.name} 님이 법당을 나갔습니다`);
+}
+function remoteUpdate(id, v) {
+  const n = remotes.get(id);
+  if (!(v.mode === 'temple' && inHallNow())) { remoteGone(id, !inHallNow()); return; }
+  if (!n) { remoteEnter(id, v); return; }
+  if ((v.bow | 0) > n.bowSeen) { n.bowSeen = v.bow | 0; if (!startBow(n)) n.bowLater = true; }
+  if ((v.hap | 0) > n.hapSeen) { n.hapSeen = v.hap | 0; if (n.cushion != null) { n.hapTo = 1; n.hapUntil = performance.now() / 1000 + 8; } }
+}
+const refreshRemotes = () => { for (const [id, v] of peers) remoteUpdate(id, v); };
+function startOnline() {
+  goOnline({
+    onUser: (id, v) => { peers.set(id, v); remoteUpdate(id, v); },
+    onLeave: (id) => { peers.delete(id); remoteGone(id); },
+  }).then((o) => { net = o; net.set({ name: player.name, mode }); }).catch(() => { /* 연결 실패해도 혼자 머물 수 있다 */ });
 }
 
 /* 정원을 거니는 동자승 */
@@ -1472,6 +1513,7 @@ function doHap() {
   if (mode !== 'garden') player.yawTo = Math.PI;
   if (player.hapTo) { player.hapTo = 0; player.hapUntil = 0; return; }
   player.hapTo = 1; player.hapUntil = performance.now() / 1000 + 8; poseOff = false;
+  if (mode === 'temple') net?.hap();
   if (place === 'cathedral') sound.bead(); else sound.moktak(0.35);
 }
 function doBow() {
@@ -1973,6 +2015,7 @@ function applyMode(next) {
   $('modeLabel').textContent = outside ? `${HALLS[place].name}으로` : church ? '성모 동산으로' : '정원으로';
   $('modeIconLeaf').style.display = outside ? 'none' : ''; $('modeIconHall').style.display = outside ? '' : 'none';
   sound.setGarden(outside);
+  net?.set({ mode: next }); refreshRemotes();
   updateHud(); updateSitBtn();
   toast(inGarden ? '정원입니다. 연못가 돌에 앉아 쉬어 가세요' : next === 'mary' ? '성모 동산입니다. 벤치에 앉아 쉬어 가세요' : next === 'cathedral' ? '성당입니다. 긴 의자에 앉아 쉬어 가세요' : '법당으로 돌아왔습니다');
 }
@@ -2742,6 +2785,7 @@ function enter(kind = 'temple') {
   gate.classList.add('leaving'); setTimeout(() => { gate.hidden = true; }, 400);
   sound.bell(0.6);
   if (kind === 'cathedral') applyMode('cathedral');
+  startOnline();
   canvas.focus?.();
 }
 $('enterBtn').onclick = () => enter('temple');
